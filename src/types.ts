@@ -36,6 +36,8 @@ export interface ReportData {
     docNumber: string;
     birthDate: string;
     age: string;
+    gender: string;
+    nationality: string;
   }[];
   informant: {
     isFamily: boolean;
@@ -57,5 +59,6 @@ export interface ReportData {
   signature: {
     chiefRank: string;
     chiefName: string;
+    chiefRole: string;
   };
 }

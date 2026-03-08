@@ -19,7 +19,7 @@ import {
   Camera,
   MapPin
 } from 'lucide-react';
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, ThinkingLevel } from "@google/genai";
 import { ReportData, VulnerabilityType } from './types';
 
 const VULNERABILITY_OPTIONS: VulnerabilityType[] = [
@@ -77,7 +77,9 @@ export default function App() {
       docType: "TI",
       docNumber: "",
       birthDate: "",
-      age: ""
+      age: "",
+      gender: "M",
+      nationality: "Colombiano"
     }],
     informant: {
       isFamily: true,
@@ -98,7 +100,8 @@ export default function App() {
     },
     signature: {
       chiefRank: "Teniente Coronel",
-      chiefName: "Alvaro Hernando Valenzuela Oviedo"
+      chiefName: "Alvaro Hernando Valenzuela Oviedo",
+      chiefRole: "Jefe Seccional de Protección y Servicios Especiales – MECAR."
     }
   });
 
@@ -110,6 +113,8 @@ export default function App() {
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [needsKey, setNeedsKey] = useState(false);
+  const [userApiKey, setUserApiKey] = useState("");
+  const [showKeyInput, setShowKeyInput] = useState(false);
 
   const getGreeting = () => {
     const hour = new Date().getHours();
@@ -122,7 +127,7 @@ export default function App() {
     const now = new Date();
     const day = String(now.getDate()).padStart(2, '0');
     const month = String(now.getMonth() + 1).padStart(2, '0');
-    const year = now.getFullYear();
+    const year = String(now.getFullYear()).slice(-2);
     return `${day}-${month}-${year}`;
   };
 
@@ -144,7 +149,9 @@ export default function App() {
         docType: "TI",
         docNumber: "",
         birthDate: "",
-        age: ""
+        age: "",
+        gender: "M",
+        nationality: "Colombiano"
       }]
     }));
   };
@@ -218,57 +225,88 @@ export default function App() {
     setFinalReport("");
     try {
       // Try to get the API key from various possible locations
-      const apiKey = (process.env as any).GEMINI_API_KEY || (process.env as any).API_KEY || "";
+      let apiKey = userApiKey || (process.env as any).GEMINI_API_KEY || (process.env as any).API_KEY || "";
       
       if (!apiKey) {
         // Check if we are in AI Studio environment and can prompt for a key
         if (typeof window !== 'undefined' && (window as any).aistudio) {
-          const hasKey = await (window as any).aistudio.hasSelectedApiKey();
-          if (!hasKey) {
-            setNeedsKey(true);
-            throw new Error("Se requiere una clave de API. Por favor, selecciónela usando el botón de abajo.");
+          try {
+            const hasKey = await (window as any).aistudio.hasSelectedApiKey();
+            if (hasKey) {
+              // The key is injected into process.env.API_KEY automatically by the platform
+              apiKey = (process.env as any).API_KEY || "";
+            } else {
+              setNeedsKey(true);
+              throw new Error("Se requiere una clave de API. Por favor, selecciónela o ingrésela manualmente.");
+            }
+          } catch (e) {
+            // Fallback if aistudio calls fail
+            setShowKeyInput(true);
+            throw new Error("No se pudo detectar la clave automáticamente. Por favor, ingrésela manualmente.");
           }
         } else {
-          throw new Error("No se encontró la clave de API de Gemini. Por favor, configure GEMINI_API_KEY.");
+          setShowKeyInput(true);
+          throw new Error("No se encontró la clave de API. Por favor, ingrésela manualmente en el recuadro de abajo.");
         }
       }
 
       const ai = new GoogleGenAI({ apiKey });
       const dateInWords = formatDateInWords(formData.incident.date);
       const vulnerability = formData.incident.vulnerabilityType === "Otro" ? customVulnerability : formData.incident.vulnerabilityType;
-      const mandatoryStart = `El día ${dateInWords}, siendo las ${formData.incident.time} horas, se atiende requerimiento policivo en ${formData.incident.location}, donde nos entrevistamos con ${formData.informant.relationship} en mención, quien nos manifiesta `;
-
-      const victimsList = formData.victim.map((v, i) => 
-        `VÍCTIMA ${i + 1}: ${v.fullName}, ${v.docType} ${v.docNumber}, Edad: ${v.age}`
+      
+      const victimsList = formData.victim.map((v) => 
+        `*VÍCTIMA:* ${v.fullName} (${v.gender}) ${v.docType}: ${v.docNumber}, FN: ${v.birthDate ? v.birthDate.split('-').reverse().join('/') : ''}, ${v.age} años, ${v.nationality}.`
       ).join('\n');
 
-      const prompt = `Genera un informe policial formal de restablecimiento de derechos en Colombia basado en los siguientes datos.
-      
-      IMPORTANTE: La sección de "RELATO DE LOS HECHOS" DEBE EMPEZAR EXACTAMENTE con la siguiente frase: "${mandatoryStart}" y continuar argumentando los hechos manifestados por el informante: "${formData.narrative.userFacts}".
-      
-      Usa lenguaje técnico-policial de Colombia (términos como "restablecimiento de derechos", "vulneración", "procedimiento", "noticia criminal" si aplica, etc.).
-      
-      DATOS ADICIONALES:
-      MOTIVO: ${vulnerability}
-      ${victimsList}
-      INFORMANTE: ${formData.informant.fullName}, ${formData.informant.docType} ${formData.informant.docNumber}, Tel: ${formData.informant.phone}
-      DIAGNÓSTICO MÉDICO: ${formData.diagnosis.applyMedical ? formData.diagnosis.medicalDiagnosis : "No aplica"}
-      ENTIDADES NOTIFICADAS: ${formData.diagnosis.notifiedEntities}
-      FIRMA: ${formData.signature.chiefRank} ${formData.signature.chiefName}
-      
-      Redacta el informe completo de forma profesional y estructurada.`;
+      const prompt = `Genera un informe policial formal de restablecimiento de derechos en Colombia siguiendo ESTRICTAMENTE esta estructura y estilo:
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3.1-pro-preview",
+REGIÓN 8
+SEPRO – MECAR
+FECHA: ${getFormattedDate()}
+
+Mi General, ${getGreeting()}
+
+INFORME DE NOVEDAD
+
+*${vulnerability.toUpperCase()}*
+
+${victimsList}
+
+*${formData.informant.relationship.toUpperCase()}:* ${formData.informant.fullName}, ${formData.informant.docType} ${formData.informant.docNumber}, residente en ${formData.informant.address}, celular: ${formData.informant.phone}.
+
+El día de hoy ${formData.incident.date.split('-').reverse().join('/')}, siendo las ${formData.incident.time} horas, se atiende requerimiento policivo en ${formData.incident.location}, dónde al llegar al lugar, nos entrevistamos con ${formData.informant.relationship} en mención, quien nos manifiesta que [AQUÍ DEBES ARGUMENTAR Y EXPANDIR EL SIGUIENTE RELATO USANDO LENGUAJE TÉCNICO POLICIAL: "${formData.narrative.userFacts}"]
+
+*DIAGNÓSTICO MÉDICO:* ${formData.diagnosis.applyMedical ? formData.diagnosis.medicalDiagnosis : "No aplica"}
+
+Se deja el caso en conocimiento del ${formData.diagnosis.notifiedEntities}.
+
+${formData.signature.chiefRank}
+*${formData.signature.chiefName}*
+${formData.signature.chiefRole}
+
+REGLAS ADICIONALES:
+1. Usa lenguaje técnico-policial de Colombia.
+2. Sé conciso pero profesional.
+3. No agregues introducciones ni conclusiones adicionales fuera de la estructura.
+4. Separa claramente los datos del acudiente/informante de la narrativa de los hechos.
+5. En el relato de los hechos, refiérete al informante como "${formData.informant.relationship} en mención".`;
+
+      const response = await ai.models.generateContentStream({
+        model: "gemini-3-flash-preview",
         contents: prompt,
+        config: {
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW }
+        }
       });
       
-      if (!response.text) {
-        throw new Error("La IA no devolvió ningún contenido.");
+      let fullText = "";
+      for await (const chunk of response) {
+        const text = chunk.text;
+        if (text) {
+          fullText += text;
+          setFinalReport(fullText);
+        }
       }
-
-      const header = `REGIÓN 8\nSEPRO – MECAR\nFECHA: ${getFormattedDate()}\n\nMi General, ${getGreeting()}.\n\n`;
-      setFinalReport(header + response.text);
     } catch (err: any) {
       console.error("Error generating report:", err);
       // If the error is about missing entity, it might be a key issue
@@ -500,6 +538,36 @@ export default function App() {
                       />
                     </Field>
                   </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <Field label="Género">
+                      <select 
+                        className="w-full bg-brand-input border-none rounded-lg p-3 text-brand-text outline-none appearance-none"
+                        value={v.gender}
+                        onChange={(e) => {
+                          const newVictims = [...formData.victim];
+                          newVictims[index].gender = e.target.value;
+                          setFormData({...formData, victim: newVictims});
+                        }}
+                      >
+                        <option value="M">Masculino (M)</option>
+                        <option value="F">Femenino (F)</option>
+                        <option value="X">Otro (X)</option>
+                      </select>
+                    </Field>
+                    <Field label="Nacionalidad">
+                      <input 
+                        type="text" 
+                        className="w-full bg-brand-input border-none rounded-lg p-3 text-brand-text outline-none"
+                        value={v.nationality}
+                        onChange={(e) => {
+                          const newVictims = [...formData.victim];
+                          newVictims[index].nationality = e.target.value;
+                          setFormData({...formData, victim: newVictims});
+                        }}
+                      />
+                    </Field>
+                  </div>
                 </div>
               </div>
             ))}
@@ -672,6 +740,14 @@ export default function App() {
                 onChange={(e) => setFormData({...formData, signature: {...formData.signature, chiefName: e.target.value}})}
               />
             </Field>
+            <Field label="Cargo del Jefe">
+              <input 
+                type="text" 
+                className="w-full bg-brand-input border-none rounded-lg p-3 text-brand-text outline-none"
+                value={formData.signature.chiefRole}
+                onChange={(e) => setFormData({...formData, signature: {...formData.signature, chiefRole: e.target.value}})}
+              />
+            </Field>
           </div>
         </Section>
 
@@ -728,13 +804,37 @@ export default function App() {
                 <Shield className="w-12 h-12 opacity-20" />
                 <p className="font-bold">Error en la generación</p>
                 <p className="text-xs opacity-80 max-w-xs">{error}</p>
-                {needsKey ? (
-                  <button 
-                    onClick={handleSelectKey}
-                    className="text-[10px] uppercase tracking-widest bg-brand-accent text-brand-bg font-bold px-6 py-3 rounded-lg hover:bg-cyan-500 transition-colors shadow-lg shadow-brand-accent/20"
-                  >
-                    Seleccionar Clave de API
-                  </button>
+                {needsKey || showKeyInput ? (
+                  <div className="space-y-4 w-full max-w-xs">
+                    <div className="space-y-2">
+                      <input 
+                        type="password"
+                        placeholder="Pegue su clave de API aquí..."
+                        className="w-full bg-brand-input border border-brand-accent/30 rounded-lg p-3 text-brand-text text-sm outline-none focus:ring-2 focus:ring-brand-accent"
+                        value={userApiKey}
+                        onChange={(e) => setUserApiKey(e.target.value)}
+                      />
+                      <p className="text-[10px] text-brand-text/40">
+                        Puede obtener una clave gratuita en <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-brand-accent underline">Google AI Studio</a>
+                      </p>
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <button 
+                        onClick={handleGenerateReport}
+                        className="text-[10px] uppercase tracking-widest bg-brand-accent text-brand-bg font-bold px-6 py-3 rounded-lg hover:bg-cyan-500 transition-colors"
+                      >
+                        Usar Clave e Intentar de Nuevo
+                      </button>
+                      {typeof window !== 'undefined' && (window as any).aistudio && (
+                        <button 
+                          onClick={handleSelectKey}
+                          className="text-[10px] uppercase tracking-widest bg-white/10 text-brand-text px-6 py-2 rounded-lg hover:bg-white/20 transition-colors"
+                        >
+                          O seleccionar clave del sistema
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 ) : (
                   <button 
                     onClick={handleGenerateReport}
