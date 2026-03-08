@@ -99,6 +99,21 @@ export default function App() {
 
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
 
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour >= 5 && hour < 12) return "buenos días";
+    if (hour >= 12 && hour < 18) return "buenas tardes";
+    return "buenas noches";
+  };
+
+  const getFormattedDate = () => {
+    const now = new Date();
+    const day = String(now.getDate()).padStart(2, '0');
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const year = now.getFullYear();
+    return `${day}-${month}-${year}`;
+  };
+
   // Auto-calculate age
   useEffect(() => {
     if (formData.victim.birthDate) {
@@ -148,29 +163,34 @@ export default function App() {
   const handleGenerateReport = async () => {
     setIsGenerating(true);
     try {
-      const prompt = `Genera un informe policial formal de restablecimiento de derechos basado en los siguientes datos:
+      const [year, month, day] = formData.incident.date.split('-');
+      const formattedDate = `${day}/${month}/${year}`;
       
+      const mandatoryStart = `El día de hoy, ${formattedDate}, siendo aproximadamente las ${formData.incident.time} horas, se atiende requerimiento policivo en ${formData.incident.location} donde nos entrevistamos con ${formData.informant.relationship} la cual nos manifiesta `;
+
+      const prompt = `Genera un informe policial formal de restablecimiento de derechos en Colombia basado en los siguientes datos.
+      
+      IMPORTANTE: La sección de "RELATO DE LOS HECHOS" DEBE EMPEZAR EXACTAMENTE con la siguiente frase: "${mandatoryStart}" y continuar argumentando los hechos manifestados por el informante: "${formData.narrative.userFacts}".
+      
+      Usa lenguaje técnico-policial de Colombia (términos como "restablecimiento de derechos", "vulneración", "procedimiento", "noticia criminal" si aplica, etc.).
+      
+      DATOS ADICIONALES:
       MOTIVO: ${formData.incident.vulnerabilityType}
-      FECHA/HORA: ${formData.incident.date} ${formData.incident.time}
-      LUGAR: ${formData.incident.location}
-      
       VÍCTIMA: ${formData.victim.fullName}, ${formData.victim.docType} ${formData.victim.docNumber}, Edad: ${formData.victim.age}
-      INFORMANTE: ${formData.informant.fullName} (${formData.informant.relationship}), ${formData.informant.docType} ${formData.informant.docNumber}, Tel: ${formData.informant.phone}
-      
-      HECHOS MANIFESTADOS: ${formData.narrative.userFacts}
-      
+      INFORMANTE: ${formData.informant.fullName}, ${formData.informant.docType} ${formData.informant.docNumber}, Tel: ${formData.informant.phone}
       DIAGNÓSTICO MÉDICO: ${formData.diagnosis.applyMedical ? formData.diagnosis.medicalDiagnosis : "No aplica"}
       ENTIDADES NOTIFICADAS: ${formData.diagnosis.notifiedEntities}
-      
       FIRMA: ${formData.signature.chiefRank} ${formData.signature.chiefName}
       
-      El informe debe ser redactado en tercera persona, con lenguaje técnico-policial, estructurado y profesional.`;
+      Redacta el informe completo de forma profesional y estructurada.`;
 
       const response = await ai.models.generateContent({
         model: "gemini-3.1-pro-preview",
         contents: prompt,
       });
-      setFinalReport(response.text || "");
+      
+      const header = `REGIÓN 8\nSEPRO – MECAR\nFECHA: ${getFormattedDate()}\n\nMi General, ${getGreeting()}.\n\n`;
+      setFinalReport(header + (response.text || ""));
     } catch (error) {
       console.error("Error generating report:", error);
     } finally {
