@@ -10,7 +10,18 @@ export type VulnerabilityType =
   | "PROBLEMAS DE COMPORTAMIENTO"
   | "ACCESO CARNAL O ACTO SEXUAL"
   | "CONSUMO DE SUSTANCIAS PSICOACTIVAS"
-  | "DESPLAZADOS(A)";
+  | "DESPLAZADOS(A)"
+  | "INTENTO DE SUICIDIO"
+  | "VÍCTIMAS DE LESIONES PERSONALES"
+  | "QUEMADOS OTRAS SUSTANCIAS"
+  | "ABANDONO"
+  | "AMENAZA"
+  | "INTOXICACIÓN"
+  | "RIÑA"
+  | "ACTO SEXUAL ABUSIVO"
+  | "CONSUMO DE BEBIDAS EMBRIAGANTES"
+  | "CONDUCTAS PUNIBLES COMETIDAS POR MENOR DE 14 AÑOS"
+  | "Otro";
 
 export interface ReportData {
   incident: {
@@ -25,7 +36,7 @@ export interface ReportData {
     docNumber: string;
     birthDate: string;
     age: string;
-  };
+  }[];
   informant: {
     isFamily: boolean;
     relationship: string;

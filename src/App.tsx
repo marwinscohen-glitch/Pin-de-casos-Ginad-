@@ -34,7 +34,18 @@ const VULNERABILITY_OPTIONS: VulnerabilityType[] = [
   "PROBLEMAS DE COMPORTAMIENTO",
   "ACCESO CARNAL O ACTO SEXUAL",
   "CONSUMO DE SUSTANCIAS PSICOACTIVAS",
-  "DESPLAZADOS(A)"
+  "DESPLAZADOS(A)",
+  "INTENTO DE SUICIDIO",
+  "VÍCTIMAS DE LESIONES PERSONALES",
+  "QUEMADOS OTRAS SUSTANCIAS",
+  "ABANDONO",
+  "AMENAZA",
+  "INTOXICACIÓN",
+  "RIÑA",
+  "ACTO SEXUAL ABUSIVO",
+  "CONSUMO DE BEBIDAS EMBRIAGANTES",
+  "CONDUCTAS PUNIBLES COMETIDAS POR MENOR DE 14 AÑOS",
+  "Otro"
 ];
 
 const RANKS = [
@@ -61,13 +72,13 @@ export default function App() {
       time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
       location: ""
     },
-    victim: {
+    victim: [{
       fullName: "",
       docType: "TI",
       docNumber: "",
       birthDate: "",
       age: ""
-    },
+    }],
     informant: {
       isFamily: true,
       relationship: "la progenitora",
@@ -91,6 +102,7 @@ export default function App() {
     }
   });
 
+  const [customVulnerability, setCustomVulnerability] = useState("");
   const [aiDraft, setAiDraft] = useState("");
   const [finalReport, setFinalReport] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
@@ -114,22 +126,62 @@ export default function App() {
     return `${day}-${month}-${year}`;
   };
 
+  const formatDateInWords = (dateStr: string) => {
+    if (!dateStr) return "";
+    const [year, month, day] = dateStr.split('-');
+    const months = [
+      "enero", "febrero", "marzo", "abril", "mayo", "junio",
+      "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"
+    ];
+    return `${day} de ${months[parseInt(month) - 1]} de ${year}`;
+  };
+
+  const addVictim = () => {
+    setFormData(prev => ({
+      ...prev,
+      victim: [...prev.victim, {
+        fullName: "",
+        docType: "TI",
+        docNumber: "",
+        birthDate: "",
+        age: ""
+      }]
+    }));
+  };
+
+  const removeVictim = (index: number) => {
+    if (formData.victim.length <= 1) return;
+    setFormData(prev => ({
+      ...prev,
+      victim: prev.victim.filter((_, i) => i !== index)
+    }));
+  };
+
   // Auto-calculate age
   useEffect(() => {
-    if (formData.victim.birthDate) {
-      const birth = new Date(formData.victim.birthDate);
-      const today = new Date();
-      let age = today.getFullYear() - birth.getFullYear();
-      const m = today.getMonth() - birth.getMonth();
-      if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) {
-        age--;
+    const updatedVictims = formData.victim.map(v => {
+      if (v.birthDate) {
+        const birth = new Date(v.birthDate);
+        const today = new Date();
+        let age = today.getFullYear() - birth.getFullYear();
+        const m = today.getMonth() - birth.getMonth();
+        if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) {
+          age--;
+        }
+        return { ...v, age: age.toString() };
       }
+      return v;
+    });
+
+    // Only update if something actually changed to avoid infinite loops
+    const hasChanged = JSON.stringify(updatedVictims) !== JSON.stringify(formData.victim);
+    if (hasChanged) {
       setFormData(prev => ({
         ...prev,
-        victim: { ...prev.victim, age: age.toString() }
+        victim: updatedVictims
       }));
     }
-  }, [formData.victim.birthDate]);
+  }, [formData.victim]);
 
   // Generate AI Draft for "Relato de los Hechos"
   const generateAiDraft = async () => {
@@ -137,15 +189,9 @@ export default function App() {
     
     setIsDrafting(true);
     try {
-      const prompt = `Como asistente policial experto, redacta una frase de inicio técnica para un informe de restablecimiento de derechos. 
-      Datos: Fecha: ${formData.incident.date}, Hora: ${formData.incident.time}, Lugar: ${formData.incident.location}, Informante: ${formData.informant.relationship}.
-      Estilo: Formal, técnico, policial. Solo una frase de inicio.`;
-
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: prompt,
-      });
-      setAiDraft(response.text || "");
+      const dateInWords = formatDateInWords(formData.incident.date);
+      const draft = `El día ${dateInWords}, siendo las ${formData.incident.time} horas, se atiende requerimiento policivo en ${formData.incident.location}, donde nos entrevistamos con ${formData.informant.relationship} en mención...`;
+      setAiDraft(draft);
     } catch (error) {
       console.error("Error generating draft:", error);
     } finally {
@@ -163,10 +209,13 @@ export default function App() {
   const handleGenerateReport = async () => {
     setIsGenerating(true);
     try {
-      const [year, month, day] = formData.incident.date.split('-');
-      const formattedDate = `${day}/${month}/${year}`;
-      
-      const mandatoryStart = `El día de hoy, ${formattedDate}, siendo aproximadamente las ${formData.incident.time} horas, se atiende requerimiento policivo en ${formData.incident.location} donde nos entrevistamos con ${formData.informant.relationship} la cual nos manifiesta `;
+      const dateInWords = formatDateInWords(formData.incident.date);
+      const vulnerability = formData.incident.vulnerabilityType === "Otro" ? customVulnerability : formData.incident.vulnerabilityType;
+      const mandatoryStart = `El día ${dateInWords}, siendo las ${formData.incident.time} horas, se atiende requerimiento policivo en ${formData.incident.location}, donde nos entrevistamos con ${formData.informant.relationship} en mención, quien nos manifiesta `;
+
+      const victimsList = formData.victim.map((v, i) => 
+        `VÍCTIMA ${i + 1}: ${v.fullName}, ${v.docType} ${v.docNumber}, Edad: ${v.age}`
+      ).join('\n');
 
       const prompt = `Genera un informe policial formal de restablecimiento de derechos en Colombia basado en los siguientes datos.
       
@@ -175,8 +224,8 @@ export default function App() {
       Usa lenguaje técnico-policial de Colombia (términos como "restablecimiento de derechos", "vulneración", "procedimiento", "noticia criminal" si aplica, etc.).
       
       DATOS ADICIONALES:
-      MOTIVO: ${formData.incident.vulnerabilityType}
-      VÍCTIMA: ${formData.victim.fullName}, ${formData.victim.docType} ${formData.victim.docNumber}, Edad: ${formData.victim.age}
+      MOTIVO: ${vulnerability}
+      ${victimsList}
       INFORMANTE: ${formData.informant.fullName}, ${formData.informant.docType} ${formData.informant.docNumber}, Tel: ${formData.informant.phone}
       DIAGNÓSTICO MÉDICO: ${formData.diagnosis.applyMedical ? formData.diagnosis.medicalDiagnosis : "No aplica"}
       ENTIDADES NOTIFICADAS: ${formData.diagnosis.notifiedEntities}
@@ -244,6 +293,27 @@ export default function App() {
                 {VULNERABILITY_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
               </select>
             </Field>
+
+            <AnimatePresence>
+              {formData.incident.vulnerabilityType === "Otro" && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  className="overflow-hidden"
+                >
+                  <Field label="Especifique el Motivo">
+                    <input 
+                      type="text" 
+                      placeholder="Escriba el motivo aquí..."
+                      className="w-full bg-brand-input border-none rounded-lg p-3 text-brand-text outline-none focus:ring-2 focus:ring-brand-accent"
+                      value={customVulnerability}
+                      onChange={(e) => setCustomVulnerability(e.target.value)}
+                    />
+                  </Field>
+                </motion.div>
+              )}
+            </AnimatePresence>
             
             <div className="grid grid-cols-2 gap-4">
               <Field label="Fecha del Incidente">
@@ -280,66 +350,112 @@ export default function App() {
         </Section>
 
         {/* Victim Data */}
-        <Section title="Datos de la Víctima" icon={<User className="w-5 h-5" />}>
-          <div className="grid grid-cols-2 gap-4 mb-4">
-            <button className="flex flex-col items-center justify-center p-6 bg-brand-input/50 border-2 border-dashed border-brand-accent/30 rounded-xl hover:bg-brand-input transition-colors group">
-              <Upload className="w-6 h-6 text-brand-accent mb-2 group-hover:scale-110 transition-transform" />
-              <span className="text-xs text-brand-accent font-medium">Subir documento de identidad</span>
+        <Section 
+          title="Datos de la Víctima" 
+          icon={<User className="w-5 h-5" />}
+          action={
+            <button 
+              onClick={addVictim}
+              className="bg-brand-accent/20 hover:bg-brand-accent/30 text-brand-accent text-[10px] font-bold px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5"
+            >
+              <Sparkles className="w-3 h-3" />
+              + Agregar Víctima
             </button>
-            <button className="flex flex-col items-center justify-center p-6 bg-brand-input/50 border-2 border-dashed border-brand-accent/30 rounded-xl hover:bg-brand-input transition-colors group opacity-60 cursor-not-allowed">
-              <Camera className="w-6 h-6 text-brand-accent mb-2" />
-              <span className="text-xs text-brand-accent font-medium">Tomar Foto (Próximamente)</span>
-            </button>
-          </div>
-          
-          <div className="space-y-4">
-            <Field label="Nombres y Apellidos Completos">
-              <input 
-                type="text" 
-                className="w-full bg-brand-input border-none rounded-lg p-3 text-brand-text outline-none"
-                value={formData.victim.fullName}
-                onChange={(e) => setFormData({...formData, victim: {...formData.victim, fullName: e.target.value}})}
-              />
-            </Field>
-            
-            <div className="grid grid-cols-2 gap-4">
-              <Field label="Tipo de Documento">
-                <input 
-                  type="text" 
-                  className="w-full bg-brand-input border-none rounded-lg p-3 text-brand-text outline-none"
-                  value={formData.victim.docType}
-                  onChange={(e) => setFormData({...formData, victim: {...formData.victim, docType: e.target.value}})}
-                />
-              </Field>
-              <Field label="Número de Documento (sin puntos)">
-                <input 
-                  type="text" 
-                  className="w-full bg-brand-input border-none rounded-lg p-3 text-brand-text outline-none"
-                  value={formData.victim.docNumber}
-                  onChange={(e) => setFormData({...formData, victim: {...formData.victim, docNumber: e.target.value}})}
-                />
-              </Field>
-            </div>
+          }
+        >
+          <div className="space-y-12">
+            {formData.victim.map((v, index) => (
+              <div key={index} className="space-y-6 pt-4 border-t border-white/5 first:border-t-0 first:pt-0 relative">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] font-black text-brand-accent/40 tracking-[0.2em] uppercase">VÍCTIMA {index + 1}</span>
+                  {formData.victim.length > 1 && (
+                    <button 
+                      onClick={() => removeVictim(index)}
+                      className="text-[10px] font-bold text-red-400/60 hover:text-red-400 transition-colors"
+                    >
+                      Eliminar Víctima
+                    </button>
+                  )}
+                </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <Field label="Fecha de Nacimiento">
-                <input 
-                  type="date" 
-                  className="w-full bg-brand-input border-none rounded-lg p-3 text-brand-text outline-none"
-                  value={formData.victim.birthDate}
-                  onChange={(e) => setFormData({...formData, victim: {...formData.victim, birthDate: e.target.value}})}
-                />
-              </Field>
-              <Field label="Edad">
-                <input 
-                  type="text" 
-                  readOnly
-                  placeholder="Se calcula autom"
-                  className="w-full bg-brand-input/50 border-none rounded-lg p-3 text-brand-text outline-none cursor-not-allowed"
-                  value={formData.victim.age}
-                />
-              </Field>
-            </div>
+                <div className="grid grid-cols-2 gap-4 mb-4">
+                  <button className="flex flex-col items-center justify-center p-6 bg-brand-input/50 border-2 border-dashed border-brand-accent/30 rounded-xl hover:bg-brand-input transition-colors group">
+                    <Upload className="w-6 h-6 text-brand-accent mb-2 group-hover:scale-110 transition-transform" />
+                    <span className="text-xs text-brand-accent font-medium">Subir documento de identidad</span>
+                  </button>
+                  <button className="flex flex-col items-center justify-center p-6 bg-brand-input/50 border-2 border-dashed border-brand-accent/30 rounded-xl hover:bg-brand-input transition-colors group opacity-60 cursor-not-allowed">
+                    <Camera className="w-6 h-6 text-brand-accent mb-2" />
+                    <span className="text-xs text-brand-accent font-medium">Tomar Foto (Próximamente)</span>
+                  </button>
+                </div>
+                
+                <div className="space-y-4">
+                  <Field label="Nombres y Apellidos Completos">
+                    <input 
+                      type="text" 
+                      className="w-full bg-brand-input border-none rounded-lg p-3 text-brand-text outline-none"
+                      value={v.fullName}
+                      onChange={(e) => {
+                        const newVictims = [...formData.victim];
+                        newVictims[index].fullName = e.target.value;
+                        setFormData({...formData, victim: newVictims});
+                      }}
+                    />
+                  </Field>
+                  
+                  <div className="grid grid-cols-2 gap-4">
+                    <Field label="Tipo de Documento">
+                      <input 
+                        type="text" 
+                        className="w-full bg-brand-input border-none rounded-lg p-3 text-brand-text outline-none"
+                        value={v.docType}
+                        onChange={(e) => {
+                          const newVictims = [...formData.victim];
+                          newVictims[index].docType = e.target.value;
+                          setFormData({...formData, victim: newVictims});
+                        }}
+                      />
+                    </Field>
+                    <Field label="Número de Documento (sin puntos)">
+                      <input 
+                        type="text" 
+                        className="w-full bg-brand-input border-none rounded-lg p-3 text-brand-text outline-none"
+                        value={v.docNumber}
+                        onChange={(e) => {
+                          const newVictims = [...formData.victim];
+                          newVictims[index].docNumber = e.target.value;
+                          setFormData({...formData, victim: newVictims});
+                        }}
+                      />
+                    </Field>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <Field label="Fecha de Nacimiento">
+                      <input 
+                        type="date" 
+                        className="w-full bg-brand-input border-none rounded-lg p-3 text-brand-text outline-none"
+                        value={v.birthDate}
+                        onChange={(e) => {
+                          const newVictims = [...formData.victim];
+                          newVictims[index].birthDate = e.target.value;
+                          setFormData({...formData, victim: newVictims});
+                        }}
+                      />
+                    </Field>
+                    <Field label="Edad">
+                      <input 
+                        type="text" 
+                        readOnly
+                        placeholder="Se calcula autom"
+                        className="w-full bg-brand-input/50 border-none rounded-lg p-3 text-brand-text outline-none cursor-not-allowed"
+                        value={v.age}
+                      />
+                    </Field>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         </Section>
 
@@ -531,37 +647,46 @@ export default function App() {
         </motion.button>
 
         {/* Preview */}
-        <AnimatePresence>
-          {finalReport && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="bg-brand-card rounded-2xl p-6 border border-brand-accent/20 shadow-xl"
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          className="bg-brand-card rounded-2xl p-6 border border-brand-accent/20 shadow-xl"
+        >
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-3">
+              <div className="w-2 h-2 bg-brand-accent rounded-full animate-pulse" />
+              <h2 className="text-xl font-bold text-brand-accent">Vista Previa del Informe</h2>
+            </div>
+            <button 
+              onClick={copyToClipboard}
+              disabled={!finalReport}
+              className="p-2 hover:bg-brand-input rounded-lg transition-colors relative group disabled:opacity-30 disabled:cursor-not-allowed"
             >
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-bold text-brand-accent">Vista Previa del Informe</h2>
-                <button 
-                  onClick={copyToClipboard}
-                  className="p-2 hover:bg-brand-input rounded-lg transition-colors relative group"
-                >
-                  {copied ? <Check className="w-5 h-5 text-green-400" /> : <Copy className="w-5 h-5 text-brand-text/60" />}
-                  <span className="absolute -top-8 left-1/2 -translate-x-1/2 bg-brand-input text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity">
-                    {copied ? "Copiado" : "Copiar"}
-                  </span>
-                </button>
+              {copied ? <Check className="w-5 h-5 text-green-400" /> : <Copy className="w-5 h-5 text-brand-text/60" />}
+              <span className="absolute -top-8 left-1/2 -translate-x-1/2 bg-brand-input text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity">
+                {copied ? "Copiado" : "Copiar"}
+              </span>
+            </button>
+          </div>
+          <div className="bg-brand-bg/80 rounded-xl p-6 text-sm text-brand-text/90 leading-relaxed font-mono whitespace-pre-wrap border border-white/5 min-h-[400px] flex flex-col">
+            {finalReport ? (
+              finalReport
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center text-brand-text/30 text-center space-y-4">
+                <FileText className="w-12 h-12 opacity-10" />
+                <p>El texto del informe generado aparecerá aquí.</p>
+                <p className="text-[10px] uppercase tracking-widest">Complete los datos y presione "Generar Informe"</p>
               </div>
-              <div className="bg-brand-bg/80 rounded-xl p-6 text-sm text-brand-text/90 leading-relaxed font-mono whitespace-pre-wrap border border-white/5 min-h-[300px]">
-                {finalReport}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+            )}
+          </div>
+        </motion.div>
       </div>
     </div>
   );
 }
 
-function Section({ title, icon, children }: { title: string, icon: React.ReactNode, children: React.ReactNode }) {
+function Section({ title, icon, action, children }: { title: string, icon: React.ReactNode, action?: React.ReactNode, children: React.ReactNode }) {
   return (
     <motion.section 
       initial={{ opacity: 0, x: -20 }}
@@ -569,11 +694,14 @@ function Section({ title, icon, children }: { title: string, icon: React.ReactNo
       viewport={{ once: true }}
       className="bg-brand-card rounded-2xl p-6 border border-white/5 shadow-lg"
     >
-      <div className="flex items-center gap-3 mb-6 pb-4 border-bottom border-white/5">
-        <div className="p-2 bg-brand-accent/10 rounded-lg text-brand-accent">
-          {icon}
+      <div className="flex items-center justify-between mb-6 pb-4 border-b border-white/5">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-brand-accent/10 rounded-lg text-brand-accent">
+            {icon}
+          </div>
+          <h2 className="text-lg font-bold text-brand-text tracking-tight">{title}</h2>
         </div>
-        <h2 className="text-lg font-bold text-brand-text tracking-tight">{title}</h2>
+        {action}
       </div>
       {children}
     </motion.section>
