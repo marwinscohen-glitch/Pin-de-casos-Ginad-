@@ -109,6 +109,7 @@ export default function App() {
   const [isDrafting, setIsDrafting] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [needsKey, setNeedsKey] = useState(false);
 
   const getGreeting = () => {
     const hour = new Date().getHours();
@@ -213,11 +214,23 @@ export default function App() {
 
     setIsGenerating(true);
     setError(null);
+    setNeedsKey(false);
     setFinalReport("");
     try {
-      const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY || "";
+      // Try to get the API key from various possible locations
+      const apiKey = (process.env as any).GEMINI_API_KEY || (process.env as any).API_KEY || "";
+      
       if (!apiKey) {
-        throw new Error("No se encontró la clave de API de Gemini.");
+        // Check if we are in AI Studio environment and can prompt for a key
+        if (typeof window !== 'undefined' && (window as any).aistudio) {
+          const hasKey = await (window as any).aistudio.hasSelectedApiKey();
+          if (!hasKey) {
+            setNeedsKey(true);
+            throw new Error("Se requiere una clave de API. Por favor, selecciónela usando el botón de abajo.");
+          }
+        } else {
+          throw new Error("No se encontró la clave de API de Gemini. Por favor, configure GEMINI_API_KEY.");
+        }
       }
 
       const ai = new GoogleGenAI({ apiKey });
@@ -258,9 +271,26 @@ export default function App() {
       setFinalReport(header + response.text);
     } catch (err: any) {
       console.error("Error generating report:", err);
-      setError(err.message || "Error al generar el informe. Por favor, intente de nuevo.");
+      // If the error is about missing entity, it might be a key issue
+      if (err.message?.includes("Requested entity was not found")) {
+        setNeedsKey(true);
+        setError("La clave de API parece no ser válida o ha expirado. Por favor, selecciónela de nuevo.");
+      } else {
+        setError(err.message || "Error al generar el informe. Por favor, intente de nuevo.");
+      }
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  const handleSelectKey = async () => {
+    if (typeof window !== 'undefined' && (window as any).aistudio) {
+      await (window as any).aistudio.openSelectKey();
+      // After opening the dialog, we assume the user might have selected a key
+      // and we can try generating again or at least clear the immediate error
+      setError(null);
+      setNeedsKey(false);
+      handleGenerateReport();
     }
   };
 
@@ -698,12 +728,21 @@ export default function App() {
                 <Shield className="w-12 h-12 opacity-20" />
                 <p className="font-bold">Error en la generación</p>
                 <p className="text-xs opacity-80 max-w-xs">{error}</p>
-                <button 
-                  onClick={handleGenerateReport}
-                  className="text-[10px] uppercase tracking-widest bg-red-400/10 px-4 py-2 rounded-lg hover:bg-red-400/20 transition-colors"
-                >
-                  Reintentar
-                </button>
+                {needsKey ? (
+                  <button 
+                    onClick={handleSelectKey}
+                    className="text-[10px] uppercase tracking-widest bg-brand-accent text-brand-bg font-bold px-6 py-3 rounded-lg hover:bg-cyan-500 transition-colors shadow-lg shadow-brand-accent/20"
+                  >
+                    Seleccionar Clave de API
+                  </button>
+                ) : (
+                  <button 
+                    onClick={handleGenerateReport}
+                    className="text-[10px] uppercase tracking-widest bg-red-400/10 px-4 py-2 rounded-lg hover:bg-red-400/20 transition-colors"
+                  >
+                    Reintentar
+                  </button>
+                )}
               </div>
             ) : finalReport ? (
               finalReport
