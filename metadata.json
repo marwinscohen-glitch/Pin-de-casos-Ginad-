@@ -1,0 +1,7 @@
+{
+  "name": "Generador de Informes Policiales AI",
+  "description": "Asistente inteligente para la redacción técnica de informes de restablecimiento de derechos.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
