@@ -108,8 +108,7 @@ export default function App() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isDrafting, setIsDrafting] = useState(false);
   const [copied, setCopied] = useState(false);
-
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+  const [error, setError] = useState<string | null>(null);
 
   const getGreeting = () => {
     const hour = new Date().getHours();
@@ -207,8 +206,21 @@ export default function App() {
   }, [formData.incident.location, formData.informant.relationship]);
 
   const handleGenerateReport = async () => {
+    if (!formData.narrative.userFacts.trim()) {
+      setError("Por favor, redacte los hechos antes de generar el informe.");
+      return;
+    }
+
     setIsGenerating(true);
+    setError(null);
+    setFinalReport("");
     try {
+      const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY || "";
+      if (!apiKey) {
+        throw new Error("No se encontró la clave de API de Gemini.");
+      }
+
+      const ai = new GoogleGenAI({ apiKey });
       const dateInWords = formatDateInWords(formData.incident.date);
       const vulnerability = formData.incident.vulnerabilityType === "Otro" ? customVulnerability : formData.incident.vulnerabilityType;
       const mandatoryStart = `El día ${dateInWords}, siendo las ${formData.incident.time} horas, se atiende requerimiento policivo en ${formData.incident.location}, donde nos entrevistamos con ${formData.informant.relationship} en mención, quien nos manifiesta `;
@@ -238,10 +250,15 @@ export default function App() {
         contents: prompt,
       });
       
+      if (!response.text) {
+        throw new Error("La IA no devolvió ningún contenido.");
+      }
+
       const header = `REGIÓN 8\nSEPRO – MECAR\nFECHA: ${getFormattedDate()}\n\nMi General, ${getGreeting()}.\n\n`;
-      setFinalReport(header + (response.text || ""));
-    } catch (error) {
-      console.error("Error generating report:", error);
+      setFinalReport(header + response.text);
+    } catch (err: any) {
+      console.error("Error generating report:", err);
+      setError(err.message || "Error al generar el informe. Por favor, intente de nuevo.");
     } finally {
       setIsGenerating(false);
     }
@@ -670,7 +687,25 @@ export default function App() {
             </button>
           </div>
           <div className="bg-brand-bg/80 rounded-xl p-6 text-sm text-brand-text/90 leading-relaxed font-mono whitespace-pre-wrap border border-white/5 min-h-[400px] flex flex-col">
-            {finalReport ? (
+            {isGenerating ? (
+              <div className="flex-1 flex flex-col items-center justify-center text-brand-accent text-center space-y-4">
+                <div className="w-12 h-12 border-4 border-brand-accent border-t-transparent rounded-full animate-spin" />
+                <p className="animate-pulse">Generando informe técnico...</p>
+                <p className="text-[10px] text-brand-text/40 uppercase tracking-widest">Esto puede tardar unos segundos</p>
+              </div>
+            ) : error ? (
+              <div className="flex-1 flex flex-col items-center justify-center text-red-400 text-center space-y-4">
+                <Shield className="w-12 h-12 opacity-20" />
+                <p className="font-bold">Error en la generación</p>
+                <p className="text-xs opacity-80 max-w-xs">{error}</p>
+                <button 
+                  onClick={handleGenerateReport}
+                  className="text-[10px] uppercase tracking-widest bg-red-400/10 px-4 py-2 rounded-lg hover:bg-red-400/20 transition-colors"
+                >
+                  Reintentar
+                </button>
+              </div>
+            ) : finalReport ? (
               finalReport
             ) : (
               <div className="flex-1 flex flex-col items-center justify-center text-brand-text/30 text-center space-y-4">
