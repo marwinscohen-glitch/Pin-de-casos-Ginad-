@@ -56,6 +56,12 @@ export interface ReportData {
     medicalDiagnosis: string;
     notifiedEntities: string;
   };
+  perpetrator: {
+    applies: boolean;
+    fullName: string;
+    address: string;
+    age: string;
+  };
   signature: {
     chiefRank: string;
     chiefName: string;

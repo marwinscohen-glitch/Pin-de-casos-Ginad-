@@ -98,6 +98,12 @@ export default function App() {
       medicalDiagnosis: "",
       notifiedEntities: "ICBF centro zonal..."
     },
+    perpetrator: {
+      applies: false,
+      fullName: "",
+      address: "",
+      age: ""
+    },
     signature: {
       chiefRank: "Teniente Coronel",
       chiefName: "Alvaro Hernando Valenzuela Oviedo",
@@ -258,6 +264,19 @@ export default function App() {
         `*VÍCTIMA:* ${v.fullName} (${v.gender}) ${v.docType}: ${v.docNumber}, FN: ${v.birthDate ? v.birthDate.split('-').reverse().join('/') : ''}, ${v.age} años, ${v.nationality}.`
       ).join('\n');
 
+      let perpetratorInfo = "";
+      if (formData.perpetrator.applies) {
+        const p = formData.perpetrator;
+        const details = [];
+        if (p.fullName) details.push(`Nombre: ${p.fullName}`);
+        if (p.address) details.push(`Dirección: ${p.address}`);
+        if (p.age) details.push(`Edad: ${p.age} años`);
+        
+        if (details.length > 0) {
+          perpetratorInfo = `\n\n*VICTIMARIO:*\n${details.join(', ')}.\n`;
+        }
+      }
+
       const prompt = `Genera un informe policial formal de restablecimiento de derechos en Colombia siguiendo ESTRICTAMENTE esta estructura y estilo:
 
 REGIÓN 8
@@ -270,7 +289,7 @@ INFORME DE NOVEDAD
 
 *${vulnerability.toUpperCase()}*
 
-${victimsList}
+${victimsList}${perpetratorInfo}
 
 *${formData.informant.relationship.toUpperCase()}:* ${formData.informant.fullName}, ${formData.informant.docType} ${formData.informant.docNumber}, residente en ${formData.informant.address}, celular: ${formData.informant.phone}.
 
@@ -718,6 +737,56 @@ REGLAS ADICIONALES:
               />
             </Field>
           </div>
+        </Section>
+
+        {/* Perpetrator Data */}
+        <Section title="Victimario" icon={<User className="w-5 h-5 text-red-400" />}>
+          <div className="flex items-center gap-3 mb-6">
+            <input 
+              type="checkbox" 
+              id="perpetratorApplies"
+              className="w-5 h-5 rounded border-none bg-brand-input text-brand-accent focus:ring-brand-accent"
+              checked={formData.perpetrator.applies}
+              onChange={(e) => setFormData({...formData, perpetrator: {...formData.perpetrator, applies: e.target.checked}})}
+            />
+            <label htmlFor="perpetratorApplies" className="text-sm text-brand-text/80">Aplica datos del victimario</label>
+          </div>
+
+          <AnimatePresence>
+            {formData.perpetrator.applies && (
+              <motion.div 
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                className="overflow-hidden space-y-4"
+              >
+                <Field label="Nombre Completo del Victimario">
+                  <input 
+                    type="text" 
+                    className="w-full bg-brand-input border-none rounded-lg p-3 text-brand-text outline-none"
+                    value={formData.perpetrator.fullName}
+                    onChange={(e) => setFormData({...formData, perpetrator: {...formData.perpetrator, fullName: e.target.value}})}
+                  />
+                </Field>
+                <Field label="Dirección de Residencia">
+                  <input 
+                    type="text" 
+                    className="w-full bg-brand-input border-none rounded-lg p-3 text-brand-text outline-none"
+                    value={formData.perpetrator.address}
+                    onChange={(e) => setFormData({...formData, perpetrator: {...formData.perpetrator, address: e.target.value}})}
+                  />
+                </Field>
+                <Field label="Edad">
+                  <input 
+                    type="text" 
+                    className="w-full bg-brand-input border-none rounded-lg p-3 text-brand-text outline-none"
+                    value={formData.perpetrator.age}
+                    onChange={(e) => setFormData({...formData, perpetrator: {...formData.perpetrator, age: e.target.value}})}
+                  />
+                </Field>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </Section>
 
         {/* Signature */}
