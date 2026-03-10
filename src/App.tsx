@@ -122,6 +122,20 @@ export default function App() {
   const [userApiKey, setUserApiKey] = useState("");
   const [showKeyInput, setShowKeyInput] = useState(false);
 
+  // Load API key from localStorage on mount
+  useEffect(() => {
+    const savedKey = localStorage.getItem("gemini_api_key");
+    if (savedKey) {
+      setUserApiKey(savedKey);
+    }
+  }, []);
+
+  // Save API key to localStorage when it changes
+  const handleApiKeyChange = (key: string) => {
+    setUserApiKey(key);
+    localStorage.setItem("gemini_api_key", key);
+  };
+
   const getGreeting = () => {
     const hour = new Date().getHours();
     if (hour >= 5 && hour < 12) return "buenos días";
@@ -881,7 +895,7 @@ REGLAS ADICIONALES:
                         placeholder="Pegue su clave de API aquí..."
                         className="w-full bg-brand-input border border-brand-accent/30 rounded-lg p-3 text-brand-text text-sm outline-none focus:ring-2 focus:ring-brand-accent"
                         value={userApiKey}
-                        onChange={(e) => setUserApiKey(e.target.value)}
+                        onChange={(e) => handleApiKeyChange(e.target.value)}
                       />
                       <p className="text-[10px] text-brand-text/40">
                         Puede obtener una clave gratuita en <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-brand-accent underline">Google AI Studio</a>
