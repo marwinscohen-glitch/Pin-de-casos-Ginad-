@@ -102,7 +102,8 @@ export default function App() {
       applies: false,
       fullName: "",
       address: "",
-      age: ""
+      age: "",
+      relationship: ""
     },
     signature: {
       chiefRank: "Teniente Coronel",
@@ -282,7 +283,12 @@ export default function App() {
       if (formData.perpetrator.applies) {
         const p = formData.perpetrator;
         const details = [];
-        if (p.fullName) details.push(`Nombre: ${p.fullName}`);
+        let nameWithRelationship = p.fullName;
+        if (p.relationship) {
+          nameWithRelationship += ` (${p.relationship})`;
+        }
+        
+        if (p.fullName) details.push(`Nombre: ${nameWithRelationship}`);
         if (p.address) details.push(`Dirección: ${p.address}`);
         if (p.age) details.push(`Edad: ${p.age} años`);
         
@@ -796,6 +802,15 @@ REGLAS ADICIONALES:
                     className="w-full bg-brand-input border-none rounded-lg p-3 text-brand-text outline-none"
                     value={formData.perpetrator.age}
                     onChange={(e) => setFormData({...formData, perpetrator: {...formData.perpetrator, age: e.target.value}})}
+                  />
+                </Field>
+                <Field label="Parentesco con la víctima">
+                  <input 
+                    type="text" 
+                    placeholder="Ej: Vecino, Novio, Padre..."
+                    className="w-full bg-brand-input border-none rounded-lg p-3 text-brand-text outline-none"
+                    value={formData.perpetrator.relationship}
+                    onChange={(e) => setFormData({...formData, perpetrator: {...formData.perpetrator, relationship: e.target.value}})}
                   />
                 </Field>
               </motion.div>
