@@ -122,12 +122,16 @@ export default function App() {
   const [needsKey, setNeedsKey] = useState(false);
   const [userApiKey, setUserApiKey] = useState("");
   const [showKeyInput, setShowKeyInput] = useState(false);
+  const [isAppReady, setIsAppReady] = useState(false);
 
   // Load API key from localStorage on mount
   useEffect(() => {
     const savedKey = localStorage.getItem("gemini_api_key");
     if (savedKey) {
       setUserApiKey(savedKey);
+      setIsAppReady(true);
+    } else if ((process.env as any).GEMINI_API_KEY || (process.env as any).API_KEY) {
+      setIsAppReady(true);
     }
   }, []);
 
@@ -135,6 +139,14 @@ export default function App() {
   const handleApiKeyChange = (key: string) => {
     setUserApiKey(key);
     localStorage.setItem("gemini_api_key", key);
+  };
+
+  const handleSaveKeyAndStart = () => {
+    if (userApiKey.trim()) {
+      setIsAppReady(true);
+    } else {
+      setError("Por favor, ingrese una clave válida para continuar.");
+    }
   };
 
   const getGreeting = () => {
@@ -249,26 +261,8 @@ export default function App() {
       let apiKey = userApiKey || (process.env as any).GEMINI_API_KEY || (process.env as any).API_KEY || "";
       
       if (!apiKey) {
-        // Check if we are in AI Studio environment and can prompt for a key
-        if (typeof window !== 'undefined' && (window as any).aistudio) {
-          try {
-            const hasKey = await (window as any).aistudio.hasSelectedApiKey();
-            if (hasKey) {
-              // The key is injected into process.env.API_KEY automatically by the platform
-              apiKey = (process.env as any).API_KEY || "";
-            } else {
-              setNeedsKey(true);
-              throw new Error("Se requiere una clave de API. Por favor, selecciónela o ingrésela manualmente.");
-            }
-          } catch (e) {
-            // Fallback if aistudio calls fail
-            setShowKeyInput(true);
-            throw new Error("No se pudo detectar la clave automáticamente. Por favor, ingrésela manualmente.");
-          }
-        } else {
-          setShowKeyInput(true);
-          throw new Error("No se encontró la clave de API. Por favor, ingrésela manualmente en el recuadro de abajo.");
-        }
+        setIsAppReady(false);
+        throw new Error("Se requiere una clave de API. Por favor, ingrésela en la pantalla de configuración.");
       }
 
       const ai = new GoogleGenAI({ apiKey });
@@ -349,9 +343,9 @@ REGLAS ADICIONALES:
     } catch (err: any) {
       console.error("Error generating report:", err);
       // If the error is about missing entity, it might be a key issue
-      if (err.message?.includes("Requested entity was not found")) {
-        setNeedsKey(true);
-        setError("La clave de API parece no ser válida o ha expirado. Por favor, selecciónela de nuevo.");
+      if (err.message?.includes("Requested entity was not found") || err.message?.includes("API key not valid")) {
+        setIsAppReady(false);
+        setError("La clave de API no es válida. Por favor, verifíquela en la configuración.");
       } else {
         setError(err.message || "Error al generar el informe. Por favor, intente de nuevo.");
       }
@@ -376,6 +370,64 @@ REGLAS ADICIONALES:
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
+
+  if (!isAppReady) {
+    return (
+      <div className="min-h-screen bg-brand-bg flex items-center justify-center p-4">
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="bg-brand-card p-8 rounded-3xl border border-brand-accent/20 shadow-2xl max-w-md w-full space-y-6"
+        >
+          <div className="text-center space-y-2">
+            <div className="w-16 h-16 bg-brand-accent/10 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <Shield className="w-8 h-8 text-brand-accent" />
+            </div>
+            <h1 className="text-2xl font-bold text-brand-text">Configuración Inicial</h1>
+            <p className="text-sm text-brand-text/60">Para usar el generador de informes, se requiere una clave de API de Google Gemini.</p>
+          </div>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-brand-text/40 uppercase tracking-widest ml-1">Clave de API</label>
+              <input 
+                type="password"
+                placeholder="Pegue su clave aquí..."
+                className="w-full bg-brand-input border border-brand-accent/30 rounded-xl p-4 text-brand-text outline-none focus:ring-2 focus:ring-brand-accent transition-all"
+                value={userApiKey}
+                onChange={(e) => handleApiKeyChange(e.target.value)}
+              />
+              <p className="text-[10px] text-brand-text/40 leading-relaxed">
+                Su clave se guardará de forma segura en su navegador y no tendrá que ingresarla de nuevo. 
+                Obténgala gratis en <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-brand-accent underline">Google AI Studio</a>.
+              </p>
+            </div>
+
+            <button 
+              onClick={handleSaveKeyAndStart}
+              className="w-full bg-brand-accent hover:bg-cyan-500 text-brand-bg font-bold py-4 rounded-xl transition-all shadow-lg shadow-brand-accent/20"
+            >
+              Comenzar a usar la aplicación
+            </button>
+
+            {typeof window !== 'undefined' && (window as any).aistudio && (
+              <button 
+                onClick={async () => {
+                  if (typeof window !== 'undefined' && (window as any).aistudio) {
+                    await (window as any).aistudio.openSelectKey();
+                    setIsAppReady(true);
+                  }
+                }}
+                className="w-full bg-white/5 hover:bg-white/10 text-brand-text py-3 rounded-xl transition-all text-sm"
+              >
+                Usar clave del sistema AI Studio
+              </button>
+            )}
+          </div>
+        </motion.div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen pb-20 px-4 pt-8 max-w-2xl mx-auto">
@@ -902,45 +954,12 @@ REGLAS ADICIONALES:
                 <Shield className="w-12 h-12 opacity-20" />
                 <p className="font-bold">Error en la generación</p>
                 <p className="text-xs opacity-80 max-w-xs">{error}</p>
-                {needsKey || showKeyInput ? (
-                  <div className="space-y-4 w-full max-w-xs">
-                    <div className="space-y-2">
-                      <input 
-                        type="password"
-                        placeholder="Pegue su clave de API aquí..."
-                        className="w-full bg-brand-input border border-brand-accent/30 rounded-lg p-3 text-brand-text text-sm outline-none focus:ring-2 focus:ring-brand-accent"
-                        value={userApiKey}
-                        onChange={(e) => handleApiKeyChange(e.target.value)}
-                      />
-                      <p className="text-[10px] text-brand-text/40">
-                        Puede obtener una clave gratuita en <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-brand-accent underline">Google AI Studio</a>
-                      </p>
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      <button 
-                        onClick={handleGenerateReport}
-                        className="text-[10px] uppercase tracking-widest bg-brand-accent text-brand-bg font-bold px-6 py-3 rounded-lg hover:bg-cyan-500 transition-colors"
-                      >
-                        Usar Clave e Intentar de Nuevo
-                      </button>
-                      {typeof window !== 'undefined' && (window as any).aistudio && (
-                        <button 
-                          onClick={handleSelectKey}
-                          className="text-[10px] uppercase tracking-widest bg-white/10 text-brand-text px-6 py-2 rounded-lg hover:bg-white/20 transition-colors"
-                        >
-                          O seleccionar clave del sistema
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  <button 
-                    onClick={handleGenerateReport}
-                    className="text-[10px] uppercase tracking-widest bg-red-400/10 px-4 py-2 rounded-lg hover:bg-red-400/20 transition-colors"
-                  >
-                    Reintentar
-                  </button>
-                )}
+                <button 
+                  onClick={handleGenerateReport}
+                  className="text-[10px] uppercase tracking-widest bg-red-400/10 px-4 py-2 rounded-lg hover:bg-red-400/20 transition-colors"
+                >
+                  Reintentar
+                </button>
               </div>
             ) : finalReport ? (
               finalReport
