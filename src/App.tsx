@@ -15,14 +15,24 @@ import {
   Sparkles, 
   Copy, 
   Check, 
-  Upload, 
-  Camera,
-  MapPin
+  MapPin,
+  BookmarkPlus,
+  WifiOff
 } from 'lucide-react';
-import { GoogleGenAI, ThinkingLevel } from "@google/genai";
 import { ReportData, VulnerabilityType } from './types';
+import { useOnlineStatus } from './hooks/useOnlineStatus';
+import { PWAInstallButton } from './components/PWAInstallButton';
+import { OfflineIndicator } from './components/OfflineIndicator';
+import { 
+  generateOfflineReport, 
+  saveCurrentFormDraft, 
+  loadCurrentFormDraft, 
+  saveDraftToHistory, 
+  SavedDraft 
+} from './utils/offlineStorage';
 
 const VULNERABILITY_OPTIONS: VulnerabilityType[] = [
+  "Ninguno",
   "EVASIÓN NÚCLEO FAMILIAR",
   "CIBER ACOSO",
   "VIOLENCIA INTRAFAMILIAR (VERBAL O PSICOLÓGICA)",
@@ -63,6 +73,45 @@ const RANKS = [
   "Cabo Tercero",
   "Patrullero"
 ];
+
+const CHIEF_NAMES = [
+  "Edwin Oswaldo Matamoros",
+  "Adriana Corrales Zapata",
+  "Rodrigo Vargas Suescun",
+  "Gonzalo Laguna Vélez"
+];
+
+function formatFriendlyError(error: any): string {
+  if (!error) return "";
+  let msg = typeof error === 'string' ? error : (error.message || String(error));
+  
+  // Unpack nested JSON strings if present
+  try {
+    const jsonMatch = msg.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      if (parsed.error?.message) {
+        msg = parsed.error.message;
+        try {
+          const inner = JSON.parse(msg);
+          if (inner.error?.message) msg = inner.error.message;
+        } catch {}
+      } else if (parsed.error && typeof parsed.error === 'string') {
+        msg = parsed.error;
+      }
+    }
+  } catch {}
+
+  const lower = msg.toLowerCase();
+  if (lower.includes('high demand') || lower.includes('503') || lower.includes('unavailable') || lower.includes('alta demanda')) {
+    return 'El servicio de IA de Google está experimentando alta demanda momentánea. Por favor, presione "Reintentar" a continuación.';
+  }
+  if (lower.includes('429') || lower.includes('quota') || lower.includes('resource_exhausted')) {
+    return 'Límite de solicitudes momentáneo. Por favor, espere unos instantes y vuelva a presionar "Reintentar".';
+  }
+
+  return msg.trim() || "Error al generar el informe. Por favor, intente nuevamente.";
+}
 
 export default function App() {
   const [formData, setFormData] = useState<ReportData>({
@@ -107,7 +156,7 @@ export default function App() {
     },
     signature: {
       chiefRank: "Teniente Coronel",
-      chiefName: "Alvaro Hernando Valenzuela Oviedo",
+      chiefName: "Edwin Oswaldo Matamoros",
       chiefRole: "Jefe Seccional de Protección y Servicios Especiales – MECAR."
     }
   });
@@ -119,34 +168,57 @@ export default function App() {
   const [isDrafting, setIsDrafting] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [needsKey, setNeedsKey] = useState(false);
-  const [userApiKey, setUserApiKey] = useState("");
-  const [showKeyInput, setShowKeyInput] = useState(false);
-  const [isAppReady, setIsAppReady] = useState(false);
 
-  // Load API key from localStorage on mount
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 4500);
+  };
+
+  const { isOnline, wasOffline, resetWasOffline } = useOnlineStatus();
+  const [isOfflineGenerated, setIsOfflineGenerated] = useState(false);
+
+  // Restore autosaved draft on start if exists
   useEffect(() => {
-    const savedKey = localStorage.getItem("gemini_api_key");
-    if (savedKey) {
-      setUserApiKey(savedKey);
-      setIsAppReady(true);
-    } else if ((process.env as any).GEMINI_API_KEY || (process.env as any).API_KEY) {
-      setIsAppReady(true);
+    const cached = loadCurrentFormDraft();
+    if (cached && cached.formData) {
+      setFormData(cached.formData);
+      if (cached.customVulnerability) {
+        setCustomVulnerability(cached.customVulnerability);
+      }
     }
   }, []);
 
-  // Save API key to localStorage when it changes
-  const handleApiKeyChange = (key: string) => {
-    setUserApiKey(key);
-    localStorage.setItem("gemini_api_key", key);
+  // Autosave to phone storage so nothing is lost if browser closes or phone restarts
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      saveCurrentFormDraft(formData, customVulnerability);
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [formData, customVulnerability]);
+
+  // Notify when internet returns
+  useEffect(() => {
+    if (wasOffline && isOnline) {
+      showToast("✓ Conexión a internet restablecida. Generación con IA activa.");
+      resetWasOffline();
+    }
+  }, [wasOffline, isOnline, resetWasOffline]);
+
+  const handleSaveDraftManually = () => {
+    saveDraftToHistory(formData, customVulnerability, finalReport, !isOfflineGenerated);
+    showToast("✓ Caso guardado en los borradores de este teléfono.");
   };
 
-  const handleSaveKeyAndStart = () => {
-    if (userApiKey.trim()) {
-      setIsAppReady(true);
-    } else {
-      setError("Por favor, ingrese una clave válida para continuar.");
+  const handleRestoreDraft = (draft: SavedDraft) => {
+    setFormData(draft.formData);
+    if (draft.customVulnerability) setCustomVulnerability(draft.customVulnerability);
+    if (draft.generatedReport) {
+      setFinalReport(draft.generatedReport);
+      setIsOfflineGenerated(!draft.syncedWithAi);
     }
+    showToast(`✓ Borrador cargado: ${draft.victimName || draft.vulnerability}`);
   };
 
   const getGreeting = () => {
@@ -254,20 +326,24 @@ export default function App() {
 
     setIsGenerating(true);
     setError(null);
-    setNeedsKey(false);
+
+    // 100% OFFLINE GENERATION MODE
+    if (!navigator.onLine || !isOnline) {
+      const offlineReport = generateOfflineReport(formData, customVulnerability);
+      setFinalReport(offlineReport);
+      setIsOfflineGenerated(true);
+      saveDraftToHistory(formData, customVulnerability, offlineReport, false);
+      showToast("✓ Informe generado en Modo Sin Conexión (Estructura oficial Policía Nacional)");
+      setIsGenerating(false);
+      return;
+    }
+
     setFinalReport("");
     try {
-      // Try to get the API key from various possible locations
-      let apiKey = userApiKey || (process.env as any).GEMINI_API_KEY || (process.env as any).API_KEY || "";
-      
-      if (!apiKey) {
-        setIsAppReady(false);
-        throw new Error("Se requiere una clave de API. Por favor, ingrésela en la pantalla de configuración.");
-      }
-
-      const ai = new GoogleGenAI({ apiKey });
       const dateInWords = formatDateInWords(formData.incident.date);
+      const isNone = formData.incident.vulnerabilityType === "Ninguno";
       const vulnerability = formData.incident.vulnerabilityType === "Otro" ? customVulnerability : formData.incident.vulnerabilityType;
+      const vulnHeader = isNone ? "" : `\n*${vulnerability.toUpperCase()}*\n`;
       
       const victimsList = formData.victim.map((v) => 
         `*VÍCTIMA:* ${v.fullName} (${v.gender}) ${v.docType}: ${v.docNumber}, FN: ${v.birthDate ? v.birthDate.split('-').reverse().join('/') : ''}, ${v.age} años, ${v.nationality}.`
@@ -300,10 +376,7 @@ FECHA: ${getFormattedDate()}
 Mi General, ${getGreeting()}
 
 INFORME DE NOVEDAD
-
-*${vulnerability.toUpperCase()}*
-
-${victimsList}${perpetratorInfo}
+${vulnHeader ? `${vulnHeader}\n` : '\n'}${victimsList}${perpetratorInfo}
 
 *${formData.informant.relationship.toUpperCase()}:* ${formData.informant.fullName}, ${formData.informant.docType} ${formData.informant.docNumber}, residente en ${formData.informant.address}, celular: ${formData.informant.phone}.
 
@@ -322,46 +395,78 @@ REGLAS ADICIONALES:
 2. Sé conciso pero profesional.
 3. No agregues introducciones ni conclusiones adicionales fuera de la estructura.
 4. Separa claramente los datos del acudiente/informante de la narrativa de los hechos.
-5. En el relato de los hechos, refiérete al informante como "${formData.informant.relationship} en mención".`;
+5. En el relato de los hechos, refiérete al informante como "${formData.informant.relationship} en mención".
+6. Si la vulnerabilidad seleccionada es "Ninguno" o no aplica, NO pongas ningún título de vulnerabilidad ni asteriscos debajo de INFORME DE NOVEDAD; pasa de forma directa a los datos de la víctima.`;
 
-      const response = await ai.models.generateContentStream({
-        model: "gemini-3-flash-preview",
-        contents: prompt,
-        config: {
-          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW }
-        }
+      const response = await fetch('/api/generate-report', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ prompt }),
       });
-      
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        const rawErrMsg = errData.error || `Error del servidor (${response.status})`;
+        throw new Error(formatFriendlyError(rawErrMsg));
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error("No se pudo iniciar el flujo de lectura.");
+
+      const decoder = new TextDecoder();
       let fullText = "";
-      for await (const chunk of response) {
-        const text = chunk.text;
-        if (text) {
-          fullText += text;
-          setFinalReport(fullText);
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            const dataStr = line.slice(6).trim();
+            if (dataStr === "[DONE]") break;
+            try {
+              const parsed = JSON.parse(dataStr);
+              if (parsed.text) {
+                fullText += parsed.text;
+                setFinalReport(fullText);
+              }
+              if (parsed.error) {
+                throw new Error(formatFriendlyError(parsed.error));
+              }
+            } catch (e: any) {
+              if (e.message && !e.message.includes("JSON")) {
+                throw e;
+              }
+            }
+          }
         }
       }
+
+      setIsOfflineGenerated(false);
+      saveDraftToHistory(formData, customVulnerability, fullText, true);
     } catch (err: any) {
       console.error("Error generating report:", err);
-      // If the error is about missing entity, it might be a key issue
-      if (err.message?.includes("Requested entity was not found") || err.message?.includes("API key not valid")) {
-        setIsAppReady(false);
-        setError("La clave de API no es válida. Por favor, verifíquela en la configuración.");
+      const errMsg = err.message || "";
+      const lower = errMsg.toLowerCase();
+
+      // If connection dropped mid-request or offline, auto fallback to offline generation without losing officer work!
+      if (!navigator.onLine || lower.includes('fetch') || lower.includes('network') || lower.includes('failed to fetch')) {
+        const offlineReport = generateOfflineReport(formData, customVulnerability);
+        setFinalReport(offlineReport);
+        setIsOfflineGenerated(true);
+        saveDraftToHistory(formData, customVulnerability, offlineReport, false);
+        showToast("✓ Informe generado con plantilla oficial en tu teléfono (Modo Local por intermitencia de red)");
       } else {
-        setError(err.message || "Error al generar el informe. Por favor, intente de nuevo.");
+        setError(formatFriendlyError(err));
       }
     } finally {
       setIsGenerating(false);
-    }
-  };
-
-  const handleSelectKey = async () => {
-    if (typeof window !== 'undefined' && (window as any).aistudio) {
-      await (window as any).aistudio.openSelectKey();
-      // After opening the dialog, we assume the user might have selected a key
-      // and we can try generating again or at least clear the immediate error
-      setError(null);
-      setNeedsKey(false);
-      handleGenerateReport();
     }
   };
 
@@ -371,67 +476,15 @@ REGLAS ADICIONALES:
     setTimeout(() => setCopied(false), 2000);
   };
 
-  if (!isAppReady) {
-    return (
-      <div className="min-h-screen bg-brand-bg flex items-center justify-center p-4">
-        <motion.div 
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="bg-brand-card p-8 rounded-3xl border border-brand-accent/20 shadow-2xl max-w-md w-full space-y-6"
-        >
-          <div className="text-center space-y-2">
-            <div className="w-16 h-16 bg-brand-accent/10 rounded-2xl flex items-center justify-center mx-auto mb-4">
-              <Shield className="w-8 h-8 text-brand-accent" />
-            </div>
-            <h1 className="text-2xl font-bold text-brand-text">Configuración Inicial</h1>
-            <p className="text-sm text-brand-text/60">Para usar el generador de informes, se requiere una clave de API de Google Gemini.</p>
-          </div>
-
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <label className="text-xs font-semibold text-brand-text/40 uppercase tracking-widest ml-1">Clave de API</label>
-              <input 
-                type="password"
-                placeholder="Pegue su clave aquí..."
-                className="w-full bg-brand-input border border-brand-accent/30 rounded-xl p-4 text-brand-text outline-none focus:ring-2 focus:ring-brand-accent transition-all"
-                value={userApiKey}
-                onChange={(e) => handleApiKeyChange(e.target.value)}
-              />
-              <p className="text-[10px] text-brand-text/40 leading-relaxed">
-                Su clave se guardará de forma segura en su navegador y no tendrá que ingresarla de nuevo. 
-                Obténgala gratis en <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-brand-accent underline">Google AI Studio</a>.
-              </p>
-            </div>
-
-            <button 
-              onClick={handleSaveKeyAndStart}
-              className="w-full bg-brand-accent hover:bg-cyan-500 text-brand-bg font-bold py-4 rounded-xl transition-all shadow-lg shadow-brand-accent/20"
-            >
-              Comenzar a usar la aplicación
-            </button>
-
-            {typeof window !== 'undefined' && (window as any).aistudio && (
-              <button 
-                onClick={async () => {
-                  if (typeof window !== 'undefined' && (window as any).aistudio) {
-                    await (window as any).aistudio.openSelectKey();
-                    setIsAppReady(true);
-                  }
-                }}
-                className="w-full bg-white/5 hover:bg-white/10 text-brand-text py-3 rounded-xl transition-all text-sm"
-              >
-                Usar clave del sistema AI Studio
-              </button>
-            )}
-          </div>
-        </motion.div>
-      </div>
-    );
-  }
-
   return (
-    <div className="min-h-screen pb-20 px-4 pt-8 max-w-2xl mx-auto">
-      <header className="text-center mb-12">
+    <div className="min-h-screen pb-20 px-4 pt-4 sm:pt-6 max-w-2xl mx-auto">
+      {/* Top Status & Install Bar */}
+      <div className="flex items-center justify-between mb-4 pb-3 border-b border-white/5">
+        <OfflineIndicator isOnline={isOnline} onRestoreDraft={handleRestoreDraft} />
+        <PWAInstallButton />
+      </div>
+
+      <header className="text-center mb-10">
         <motion.div 
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -450,7 +503,7 @@ REGLAS ADICIONALES:
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.2 }}
-          className="text-brand-text/60 text-lg"
+          className="text-brand-text/60 text-lg mb-4"
         >
           Asistente inteligente para la redacción técnica de informes de restablecimiento de derechos.
         </motion.p>
@@ -554,17 +607,6 @@ REGLAS ADICIONALES:
                   )}
                 </div>
 
-                <div className="grid grid-cols-2 gap-4 mb-4">
-                  <button className="flex flex-col items-center justify-center p-6 bg-brand-input/50 border-2 border-dashed border-brand-accent/30 rounded-xl hover:bg-brand-input transition-colors group">
-                    <Upload className="w-6 h-6 text-brand-accent mb-2 group-hover:scale-110 transition-transform" />
-                    <span className="text-xs text-brand-accent font-medium">Subir documento de identidad</span>
-                  </button>
-                  <button className="flex flex-col items-center justify-center p-6 bg-brand-input/50 border-2 border-dashed border-brand-accent/30 rounded-xl hover:bg-brand-input transition-colors group opacity-60 cursor-not-allowed">
-                    <Camera className="w-6 h-6 text-brand-accent mb-2" />
-                    <span className="text-xs text-brand-accent font-medium">Tomar Foto (Próximamente)</span>
-                  </button>
-                </div>
-                
                 <div className="space-y-4">
                   <Field label="Nombres y Apellidos Completos">
                     <input 
@@ -676,17 +718,6 @@ REGLAS ADICIONALES:
               onChange={(e) => setFormData({...formData, informant: {...formData.informant, isFamily: e.target.checked}})}
             />
             <label htmlFor="isFamily" className="text-sm text-brand-text/80">El informante es familiar o acudiente</label>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4 mb-6">
-            <button className="flex flex-col items-center justify-center p-6 bg-brand-input/50 border-2 border-dashed border-brand-accent/30 rounded-xl hover:bg-brand-input transition-colors group">
-              <Upload className="w-6 h-6 text-brand-accent mb-2 group-hover:scale-110 transition-transform" />
-              <span className="text-xs text-brand-accent font-medium">Subir documento de identidad</span>
-            </button>
-            <button className="flex flex-col items-center justify-center p-6 bg-brand-input/50 border-2 border-dashed border-brand-accent/30 rounded-xl hover:bg-brand-input transition-colors group opacity-60 cursor-not-allowed">
-              <Camera className="w-6 h-6 text-brand-accent mb-2" />
-              <span className="text-xs text-brand-accent font-medium">Tomar Foto (Próximamente)</span>
-            </button>
           </div>
 
           <div className="space-y-4">
@@ -883,12 +914,22 @@ REGLAS ADICIONALES:
               </select>
             </Field>
             <Field label="Nombre del Jefe">
-              <input 
-                type="text" 
-                className="w-full bg-brand-input border-none rounded-lg p-3 text-brand-text outline-none"
-                value={formData.signature.chiefName}
-                onChange={(e) => setFormData({...formData, signature: {...formData.signature, chiefName: e.target.value}})}
-              />
+              <select 
+                className="w-full bg-brand-input border-none rounded-lg p-3 text-brand-text outline-none appearance-none cursor-pointer focus:ring-2 focus:ring-brand-accent"
+                value={
+                  CHIEF_NAMES.find(c => c.toLowerCase() === (formData.signature.chiefName || '').toLowerCase()) || CHIEF_NAMES[0]
+                }
+                onChange={(e) => {
+                  setFormData({
+                    ...formData,
+                    signature: { ...formData.signature, chiefName: e.target.value }
+                  });
+                }}
+              >
+                {CHIEF_NAMES.map(name => (
+                  <option key={name} value={name}>{name}</option>
+                ))}
+              </select>
             </Field>
             <Field label="Cargo del Jefe">
               <input 
@@ -901,23 +942,37 @@ REGLAS ADICIONALES:
           </div>
         </Section>
 
-        {/* Generate Button */}
-        <motion.button
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
-          onClick={handleGenerateReport}
-          disabled={isGenerating}
-          className="w-full bg-brand-accent hover:bg-cyan-500 text-brand-bg font-bold py-4 rounded-xl flex items-center justify-center gap-2 transition-colors shadow-lg shadow-brand-accent/20 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {isGenerating ? (
-            <div className="w-6 h-6 border-2 border-brand-bg border-t-transparent rounded-full animate-spin" />
-          ) : (
-            <>
-              <Sparkles className="w-5 h-5" />
-              Generar Informe
-            </>
-          )}
-        </motion.button>
+        {/* Action Buttons: Generate & Save Draft */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <motion.button
+            whileHover={{ scale: 1.01 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={handleGenerateReport}
+            disabled={isGenerating}
+            className="sm:col-span-2 w-full bg-brand-accent hover:bg-cyan-400 text-brand-bg font-bold py-4 px-4 rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-brand-accent/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+          >
+            {isGenerating ? (
+              <div className="w-6 h-6 border-2 border-brand-bg border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <>
+                <Sparkles className="w-5 h-5" />
+                <span>{isOnline ? "Generar Informe" : "Generar Informe (Sin Internet)"}</span>
+              </>
+            )}
+          </motion.button>
+
+          <motion.button
+            whileHover={{ scale: 1.01 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={handleSaveDraftManually}
+            type="button"
+            className="w-full bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-slate-600 text-slate-200 font-semibold py-4 px-4 rounded-xl flex items-center justify-center gap-2 transition-all shadow-md cursor-pointer text-xs sm:text-sm"
+            title="Guardar este caso en la memoria del teléfono"
+          >
+            <BookmarkPlus className="w-4 h-4 text-cyan-400" />
+            <span>Guardar Borrador</span>
+          </motion.button>
+        </div>
 
         {/* Preview */}
         <motion.div
@@ -926,7 +981,7 @@ REGLAS ADICIONALES:
           viewport={{ once: true }}
           className="bg-brand-card rounded-2xl p-6 border border-brand-accent/20 shadow-xl"
         >
-          <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
               <div className="w-2 h-2 bg-brand-accent rounded-full animate-pulse" />
               <h2 className="text-xl font-bold text-brand-accent">Vista Previa del Informe</h2>
@@ -934,7 +989,7 @@ REGLAS ADICIONALES:
             <button 
               onClick={copyToClipboard}
               disabled={!finalReport}
-              className="p-2 hover:bg-brand-input rounded-lg transition-colors relative group disabled:opacity-30 disabled:cursor-not-allowed"
+              className="p-2 hover:bg-brand-input rounded-lg transition-colors relative group disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
             >
               {copied ? <Check className="w-5 h-5 text-green-400" /> : <Copy className="w-5 h-5 text-brand-text/60" />}
               <span className="absolute -top-8 left-1/2 -translate-x-1/2 bg-brand-input text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity">
@@ -942,6 +997,27 @@ REGLAS ADICIONALES:
               </span>
             </button>
           </div>
+
+          {/* Offline generation banner with AI upgrade option */}
+          {isOfflineGenerated && finalReport && (
+            <div className="mb-4 p-3 rounded-xl bg-amber-950/40 border border-amber-500/30 flex flex-wrap items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-2 text-amber-300">
+                <WifiOff className="w-4 h-4 shrink-0 text-amber-400" />
+                <span>Generado con la <strong>estructura oficial técnica</strong> en modo sin conexión.</span>
+              </div>
+              {isOnline && (
+                <button
+                  onClick={handleGenerateReport}
+                  disabled={isGenerating}
+                  className="px-3 py-1.5 rounded-lg bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-bold shrink-0 flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  Mejorar con IA
+                </button>
+              )}
+            </div>
+          )}
+
           <div className="bg-brand-bg/80 rounded-xl p-6 text-sm text-brand-text/90 leading-relaxed font-mono whitespace-pre-wrap border border-white/5 min-h-[400px] flex flex-col">
             {isGenerating ? (
               <div className="flex-1 flex flex-col items-center justify-center text-brand-accent text-center space-y-4">
@@ -950,15 +1026,22 @@ REGLAS ADICIONALES:
                 <p className="text-[10px] text-brand-text/40 uppercase tracking-widest">Esto puede tardar unos segundos</p>
               </div>
             ) : error ? (
-              <div className="flex-1 flex flex-col items-center justify-center text-red-400 text-center space-y-4">
-                <Shield className="w-12 h-12 opacity-20" />
-                <p className="font-bold">Error en la generación</p>
-                <p className="text-xs opacity-80 max-w-xs">{error}</p>
+              <div className="flex-1 flex flex-col items-center justify-center text-center p-6 space-y-4">
+                <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-2xl text-amber-400">
+                  <Shield className="w-10 h-10" />
+                </div>
+                <div className="space-y-1">
+                  <p className="font-bold text-base text-brand-text">Aviso del Asistente</p>
+                  <p className="text-xs text-brand-text/70 max-w-sm mx-auto leading-relaxed">
+                    {error}
+                  </p>
+                </div>
                 <button 
                   onClick={handleGenerateReport}
-                  className="text-[10px] uppercase tracking-widest bg-red-400/10 px-4 py-2 rounded-lg hover:bg-red-400/20 transition-colors"
+                  className="mt-2 text-xs font-bold uppercase tracking-wider bg-brand-accent hover:bg-cyan-400 text-brand-bg px-6 py-3 rounded-xl shadow-lg shadow-brand-accent/25 transition-all flex items-center gap-2 cursor-pointer"
                 >
-                  Reintentar
+                  <Sparkles className="w-4 h-4" />
+                  Reintentar Ahora
                 </button>
               </div>
             ) : finalReport ? (
@@ -973,6 +1056,24 @@ REGLAS ADICIONALES:
           </div>
         </motion.div>
       </div>
+
+      {/* Toast Notification */}
+      <AnimatePresence>
+        {toastMessage && (
+          <motion.div
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 50 }}
+            className="fixed bottom-6 right-6 z-50 bg-brand-card border-2 border-brand-accent/50 text-brand-text px-5 py-3.5 rounded-2xl shadow-2xl flex items-center gap-3 backdrop-blur-md"
+          >
+            <div className="w-8 h-8 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center flex-shrink-0">
+              <Check className="w-4 h-4" />
+            </div>
+            <div className="text-xs font-semibold">{toastMessage}</div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
     </div>
   );
 }

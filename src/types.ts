@@ -1,4 +1,5 @@
 export type VulnerabilityType = 
+  | "Ninguno"
   | "EVASIÓN NÚCLEO FAMILIAR"
   | "CIBER ACOSO"
   | "VIOLENCIA INTRAFAMILIAR (VERBAL O PSICOLÓGICA)"
@@ -61,6 +62,7 @@ export interface ReportData {
     fullName: string;
     address: string;
     age: string;
+    relationship?: string;
   };
   signature: {
     chiefRank: string;
