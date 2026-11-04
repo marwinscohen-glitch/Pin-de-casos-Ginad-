@@ -59,6 +59,7 @@ const VULNERABILITY_OPTIONS: VulnerabilityType[] = [
 ];
 
 const RANKS = [
+  "Coronel",
   "Teniente Coronel",
   "Mayor",
   "Capitán",
@@ -324,23 +325,25 @@ export default function App() {
       return;
     }
 
-    setIsGenerating(true);
     setError(null);
 
-    // 100% OFFLINE GENERATION MODE
+    // ⚡ VELOZ / INSTANTÁNEO: Generar inmediatamente el informe oficial (0 milisegundos)
+    const instantReport = generateOfflineReport(formData, customVulnerability);
+    setFinalReport(instantReport);
+    saveDraftToHistory(formData, customVulnerability, instantReport, false);
+
+    // Si está sin conexión, el informe ya está listo inmediatamente
     if (!navigator.onLine || !isOnline) {
-      const offlineReport = generateOfflineReport(formData, customVulnerability);
-      setFinalReport(offlineReport);
       setIsOfflineGenerated(true);
-      saveDraftToHistory(formData, customVulnerability, offlineReport, false);
-      showToast("✓ Informe generado en Modo Sin Conexión (Estructura oficial Policía Nacional)");
-      setIsGenerating(false);
+      showToast("✓ Informe generado al instante con la estructura oficial.");
       return;
     }
 
-    setFinalReport("");
+    // Si tiene conexión, iniciamos optimización con IA en segundo plano de manera no bloqueante
+    setIsGenerating(true);
+    showToast("✓ Informe generado de inmediato. Pulido con IA activo...");
+
     try {
-      const dateInWords = formatDateInWords(formData.incident.date);
       const isNone = formData.incident.vulnerabilityType === "Ninguno";
       const vulnerability = formData.incident.vulnerabilityType === "Otro" ? customVulnerability : formData.incident.vulnerabilityType;
       const vulnHeader = isNone ? "" : `\n*${vulnerability.toUpperCase()}*\n`;
@@ -373,7 +376,7 @@ REGIÓN 8
 SEPRO – MECAR
 FECHA: ${getFormattedDate()}
 
-Mi General, ${getGreeting()}
+Mi Coronel, ${getGreeting()}
 
 INFORME DE NOVEDAD
 ${vulnHeader ? `${vulnHeader}\n` : '\n'}${victimsList}${perpetratorInfo}
@@ -391,29 +394,40 @@ ${formData.signature.chiefRank}
 ${formData.signature.chiefRole}
 
 REGLAS ADICIONALES:
-1. Usa lenguaje técnico-policial de Colombia.
-2. Sé conciso pero profesional.
-3. No agregues introducciones ni conclusiones adicionales fuera de la estructura.
-4. Separa claramente los datos del acudiente/informante de la narrativa de los hechos.
-5. En el relato de los hechos, refiérete al informante como "${formData.informant.relationship} en mención".
-6. Si la vulnerabilidad seleccionada es "Ninguno" o no aplica, NO pongas ningún título de vulnerabilidad ni asteriscos debajo de INFORME DE NOVEDAD; pasa de forma directa a los datos de la víctima.`;
+1. Saludo inicial obligatorio: "Mi Coronel, ${getGreeting()}" (NUNCA uses "Mi General", SIEMPRE "Mi Coronel").
+2. Usa lenguaje técnico-policial de Colombia.
+3. Sé conciso pero profesional.
+4. No agregues introducciones ni conclusiones adicionales fuera de la estructura.
+5. Separa claramente los datos del acudiente/informante de la narrativa de los hechos.
+6. En el relato de los hechos, refiérete al informante como "${formData.informant.relationship} en mención".
+7. Si la vulnerabilidad seleccionada es "Ninguno" o no aplica, NO pongas ningún título de vulnerabilidad ni asteriscos debajo de INFORME DE NOVEDAD; pasa de forma directa a los datos de la víctima.`;
 
-      const response = await fetch('/api/generate-report', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ prompt }),
-      });
+      let response: Response | null = null;
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+        response = await fetch('/api/generate-report', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ prompt }),
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+      } catch (fetchErr) {
+        console.warn("Direct API call failed or timed out, keeping instant official report:", fetchErr);
+      }
 
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        const rawErrMsg = errData.error || `Error del servidor (${response.status})`;
-        throw new Error(formatFriendlyError(rawErrMsg));
+      // If server returned non-200 or failed to connect, keep the instant official report
+      if (!response || !response.ok) {
+        console.log(`Server responded with ${response?.status || 'network failure'}, keeping instant official report.`);
+        setIsOfflineGenerated(true);
+        return;
       }
 
       const reader = response.body?.getReader();
-      if (!reader) throw new Error("No se pudo iniciar el flujo de lectura.");
+      if (!reader) return;
 
       const decoder = new TextDecoder();
       let fullText = "";
@@ -437,34 +451,25 @@ REGLAS ADICIONALES:
                 setFinalReport(fullText);
               }
               if (parsed.error) {
-                throw new Error(formatFriendlyError(parsed.error));
+                console.warn("AI streaming notice:", parsed.error);
+                break;
               }
             } catch (e: any) {
               if (e.message && !e.message.includes("JSON")) {
-                throw e;
+                console.warn(e);
               }
             }
           }
         }
       }
 
-      setIsOfflineGenerated(false);
-      saveDraftToHistory(formData, customVulnerability, fullText, true);
-    } catch (err: any) {
-      console.error("Error generating report:", err);
-      const errMsg = err.message || "";
-      const lower = errMsg.toLowerCase();
-
-      // If connection dropped mid-request or offline, auto fallback to offline generation without losing officer work!
-      if (!navigator.onLine || lower.includes('fetch') || lower.includes('network') || lower.includes('failed to fetch')) {
-        const offlineReport = generateOfflineReport(formData, customVulnerability);
-        setFinalReport(offlineReport);
-        setIsOfflineGenerated(true);
-        saveDraftToHistory(formData, customVulnerability, offlineReport, false);
-        showToast("✓ Informe generado con plantilla oficial en tu teléfono (Modo Local por intermitencia de red)");
-      } else {
-        setError(formatFriendlyError(err));
+      if (fullText.trim().length > 50) {
+        setIsOfflineGenerated(false);
+        saveDraftToHistory(formData, customVulnerability, fullText, true);
+        showToast("✓ Informe optimizado y listo para enviar.");
       }
+    } catch (err: any) {
+      console.warn("Error in AI refinement, keeping instant report:", err);
     } finally {
       setIsGenerating(false);
     }
@@ -515,11 +520,16 @@ REGLAS ADICIONALES:
           <div className="space-y-4">
             <Field label="Motivo / Tipo de Vulnerabilidad">
               <select 
-                className="w-full bg-brand-input border-none rounded-lg p-3 text-brand-text focus:ring-2 focus:ring-brand-accent outline-none appearance-none"
+                className="w-full bg-brand-input border-none rounded-lg p-3 text-brand-text focus:ring-2 focus:ring-brand-accent outline-none appearance-none cursor-pointer"
                 value={formData.incident.vulnerabilityType}
                 onChange={(e) => setFormData({...formData, incident: {...formData.incident, vulnerabilityType: e.target.value as VulnerabilityType}})}
               >
-                {VULNERABILITY_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                <option value="Ninguno">
+                  {formData.incident.vulnerabilityType === "Ninguno" ? "" : "-- Ninguno (Dejar en blanco) --"}
+                </option>
+                {VULNERABILITY_OPTIONS.filter(opt => opt !== "Ninguno").map(opt => (
+                  <option key={opt} value={opt}>{opt}</option>
+                ))}
               </select>
             </Field>
 
@@ -999,11 +1009,11 @@ REGLAS ADICIONALES:
           </div>
 
           {/* Offline generation banner with AI upgrade option */}
-          {isOfflineGenerated && finalReport && (
-            <div className="mb-4 p-3 rounded-xl bg-amber-950/40 border border-amber-500/30 flex flex-wrap items-center justify-between gap-3 text-xs">
-              <div className="flex items-center gap-2 text-amber-300">
-                <WifiOff className="w-4 h-4 shrink-0 text-amber-400" />
-                <span>Generado con la <strong>estructura oficial técnica</strong> en modo sin conexión.</span>
+          {isOfflineGenerated && finalReport && !isGenerating && (
+            <div className="mb-4 p-3 rounded-xl bg-cyan-950/40 border border-cyan-500/30 flex flex-wrap items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-2 text-cyan-300">
+                <Shield className="w-4 h-4 shrink-0 text-cyan-400" />
+                <span>Estructura oficial técnica de la Policía Nacional lista para copiar.</span>
               </div>
               {isOnline && (
                 <button
@@ -1012,18 +1022,30 @@ REGLAS ADICIONALES:
                   className="px-3 py-1.5 rounded-lg bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-bold shrink-0 flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
                 >
                   <Sparkles className="w-3.5 h-3.5" />
-                  Mejorar con IA
+                  Pulir con IA
                 </button>
               )}
             </div>
           )}
 
           <div className="bg-brand-bg/80 rounded-xl p-6 text-sm text-brand-text/90 leading-relaxed font-mono whitespace-pre-wrap border border-white/5 min-h-[400px] flex flex-col">
-            {isGenerating ? (
+            {finalReport ? (
+              <>
+                {isGenerating && (
+                  <div className="mb-4 p-2.5 rounded-lg bg-cyan-950/80 border border-cyan-500/40 flex items-center justify-between text-xs text-cyan-300 font-sans shadow-inner">
+                    <span className="flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 animate-spin text-cyan-400 shrink-0" />
+                      Optimizando redacción con IA... (el informe ya está completo y listo para copiar)
+                    </span>
+                  </div>
+                )}
+                {finalReport}
+              </>
+            ) : isGenerating ? (
               <div className="flex-1 flex flex-col items-center justify-center text-brand-accent text-center space-y-4">
                 <div className="w-12 h-12 border-4 border-brand-accent border-t-transparent rounded-full animate-spin" />
                 <p className="animate-pulse">Generando informe técnico...</p>
-                <p className="text-[10px] text-brand-text/40 uppercase tracking-widest">Esto puede tardar unos segundos</p>
+                <p className="text-[10px] text-brand-text/40 uppercase tracking-widest">Al instante</p>
               </div>
             ) : error ? (
               <div className="flex-1 flex flex-col items-center justify-center text-center p-6 space-y-4">
@@ -1044,8 +1066,6 @@ REGLAS ADICIONALES:
                   Reintentar Ahora
                 </button>
               </div>
-            ) : finalReport ? (
-              finalReport
             ) : (
               <div className="flex-1 flex flex-col items-center justify-center text-brand-text/30 text-center space-y-4">
                 <FileText className="w-12 h-12 opacity-10" />

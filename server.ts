@@ -9,7 +9,18 @@ dotenv.config();
 const app = express();
 const PORT = 3000;
 
-// Support base64 image uploads from camera / gallery
+// Enable full CORS for webview, native Android APK wrappers (com.mycompany.pindecasos), and external clients
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(204);
+  }
+  next();
+});
+
+// Support base64 image uploads and JSON payloads
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
@@ -73,9 +84,9 @@ function isTransientError(error: any): boolean {
   );
 }
 
-// Model fallback lists in order of priority (non-deprecated models)
-const TEXT_MODELS = ['gemini-3.8-flash', 'gemini-2.5-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
-const VISION_MODELS = ['gemini-3.8-flash', 'gemini-2.5-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
+// Model fallback lists in order of priority (non-deprecated models, ultra-fast low-latency first)
+const TEXT_MODELS = ['gemini-2.5-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-3.8-flash'];
+const VISION_MODELS = ['gemini-2.5-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-3.8-flash'];
 
 // Endpoint: Extract structured data from Colombian ID photos
 app.post('/api/extract-id', async (req, res) => {
@@ -156,6 +167,8 @@ Responde únicamente con el esquema JSON.`;
           config.thinkingConfig = { thinkingLevel: ThinkingLevel.LOW };
         } else if (model === 'gemini-3.1-flash-lite') {
           config.thinkingConfig = { thinkingLevel: ThinkingLevel.MINIMAL };
+        } else if (model === 'gemini-2.5-flash') {
+          config.thinkingConfig = { thinkingBudget: 0 };
         }
 
         const response = await ai.models.generateContent({
@@ -201,7 +214,7 @@ Responde únicamente con el esquema JSON.`;
 });
 
 // Endpoint: Generate formal police report with streaming response and multi-model fallback
-app.post('/api/generate-report', async (req, res) => {
+app.post(['/api/generate-report', '/api/generate-report/', '/api/generate_report'], async (req, res) => {
   const { prompt } = req.body;
 
   if (!prompt || typeof prompt !== 'string') {
@@ -219,6 +232,8 @@ app.post('/api/generate-report', async (req, res) => {
         config.thinkingConfig = { thinkingLevel: ThinkingLevel.LOW };
       } else if (model === 'gemini-3.1-flash-lite') {
         config.thinkingConfig = { thinkingLevel: ThinkingLevel.MINIMAL };
+      } else if (model === 'gemini-2.5-flash') {
+        config.thinkingConfig = { thinkingBudget: 0 };
       }
 
       const responseStream = await ai.models.generateContentStream({

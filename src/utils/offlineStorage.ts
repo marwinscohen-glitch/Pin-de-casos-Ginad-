@@ -98,14 +98,14 @@ export function generateOfflineReport(formData: ReportData, customVulnerability 
   // Police formal narrative construction
   const rawFacts = formData.narrative.userFacts.trim();
   const polishedNarrative = rawFacts
-    ? `El día de hoy ${incidentDateFormatted}, siendo las ${formData.incident.time || '12:00'} horas, se atiende requerimiento policivo en ${formData.incident.location || 'el sector'}, dónde al llegar al lugar nos entrevistamos con ${formData.informant.relationship || 'la persona en mención'}, quien nos manifiesta en relación con los hechos lo siguiente:\n\n"${rawFacts}"`
+    ? `El día de hoy ${incidentDateFormatted}, siendo las ${formData.incident.time || '12:00'} horas, se atiende requerimiento policivo en ${formData.incident.location || 'el sector'}, dónde al llegar al lugar nos entrevistamos con ${formData.informant.relationship || 'la persona en mención'} en mención, quien nos manifiesta que ${rawFacts}`
     : `El día de hoy ${incidentDateFormatted}, siendo las ${formData.incident.time || '12:00'} horas, se atiende requerimiento policivo en ${formData.incident.location || 'el lugar de los hechos'}, entrevistando a ${formData.informant.relationship || 'el acompañante en mención'}.`;
 
   return `REGIÓN 8
 SEPRO – MECAR
 FECHA: ${getFormattedDate()}
 
-Mi General, ${getGreeting()}
+Mi Coronel, ${getGreeting()}
 
 INFORME DE NOVEDAD${vulnLine ? `${vulnLine}` : '\n'}
 ${victimsList}${perpetratorInfo}
