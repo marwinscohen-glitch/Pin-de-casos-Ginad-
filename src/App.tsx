@@ -28,7 +28,9 @@ import {
   saveCurrentFormDraft, 
   loadCurrentFormDraft, 
   saveDraftToHistory, 
-  SavedDraft 
+  SavedDraft,
+  getRelationshipWithConnector,
+  getCleanRelationshipTitle
 } from './utils/offlineStorage';
 
 const VULNERABILITY_OPTIONS: VulnerabilityType[] = [
@@ -79,7 +81,14 @@ const CHIEF_NAMES = [
   "Edwin Oswaldo Matamoros",
   "Adriana Corrales Zapata",
   "Rodrigo Vargas Suescun",
-  "Gonzalo Laguna Vélez"
+  "Gonzalo Laguna Vélez",
+  "Otro"
+];
+
+const CHIEF_ROLES = [
+  "Jefe Seccional de Protección y Servicios Especiales – MECAR.",
+  "Jefe GINAD - MECAR",
+  "Otro"
 ];
 
 function formatFriendlyError(error: any): string {
@@ -133,7 +142,7 @@ export default function App() {
     }],
     informant: {
       isFamily: true,
-      relationship: "la progenitora",
+      relationship: "progenitora",
       fullName: "",
       docType: "CC",
       docNumber: "",
@@ -296,14 +305,14 @@ export default function App() {
     }
   }, [formData.victim]);
 
-  // Generate AI Draft for "Relato de los Hechos"
-  const generateAiDraft = async () => {
-    if (!formData.incident.location || !formData.informant.relationship) return;
-    
+  // Generate AI Draft for "Relato de los Hechos" (Ayuda para la redacción)
+  const generateAiDraft = () => {
     setIsDrafting(true);
     try {
       const dateInWords = formatDateInWords(formData.incident.date);
-      const draft = `El día ${dateInWords}, siendo las ${formData.incident.time} horas, se atiende requerimiento policivo en ${formData.incident.location}, donde nos entrevistamos con ${formData.informant.relationship} en mención...`;
+      const relationWithConnector = getRelationshipWithConnector(formData.informant.relationship || 'persona');
+      const locationText = formData.incident.location.trim() || '[Lugar de los hechos]';
+      const draft = `El día ${dateInWords || 'de hoy'}, siendo las ${formData.incident.time || '12:00'} horas, se atiende requerimiento policivo en ${locationText}, donde nos entrevistamos con ${relationWithConnector} en mención...`;
       setAiDraft(draft);
     } catch (error) {
       console.error("Error generating draft:", error);
@@ -313,11 +322,8 @@ export default function App() {
   };
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      if (formData.incident.location) generateAiDraft();
-    }, 1000);
-    return () => clearTimeout(timer);
-  }, [formData.incident.location, formData.informant.relationship]);
+    generateAiDraft();
+  }, [formData.incident.location, formData.incident.date, formData.incident.time, formData.informant.relationship]);
 
   const handleGenerateReport = async () => {
     if (!formData.narrative.userFacts.trim()) {
@@ -347,6 +353,8 @@ export default function App() {
       const isNone = formData.incident.vulnerabilityType === "Ninguno";
       const vulnerability = formData.incident.vulnerabilityType === "Otro" ? customVulnerability : formData.incident.vulnerabilityType;
       const vulnHeader = isNone ? "" : `\n*${vulnerability.toUpperCase()}*\n`;
+      const relationWithConnector = getRelationshipWithConnector(formData.informant.relationship || 'persona');
+      const informantRelationTitle = getCleanRelationshipTitle(formData.informant.relationship || 'acudiente');
       
       const victimsList = formData.victim.map((v) => 
         `*VÍCTIMA:* ${v.fullName} (${v.gender}) ${v.docType}: ${v.docNumber}, FN: ${v.birthDate ? v.birthDate.split('-').reverse().join('/') : ''}, ${v.age} años, ${v.nationality}.`
@@ -381,9 +389,9 @@ Mi Coronel, ${getGreeting()}
 INFORME DE NOVEDAD
 ${vulnHeader ? `${vulnHeader}\n` : '\n'}${victimsList}${perpetratorInfo}
 
-*${formData.informant.relationship.toUpperCase()}:* ${formData.informant.fullName}, ${formData.informant.docType} ${formData.informant.docNumber}, residente en ${formData.informant.address}, celular: ${formData.informant.phone}.
+*${informantRelationTitle}:* ${formData.informant.fullName}, ${formData.informant.docType} ${formData.informant.docNumber}, residente en ${formData.informant.address}, celular: ${formData.informant.phone}.
 
-El día de hoy ${formData.incident.date.split('-').reverse().join('/')}, siendo las ${formData.incident.time} horas, se atiende requerimiento policivo en ${formData.incident.location}, dónde al llegar al lugar, nos entrevistamos con ${formData.informant.relationship} en mención, quien nos manifiesta que [AQUÍ DEBES ARGUMENTAR Y EXPANDIR EL SIGUIENTE RELATO USANDO LENGUAJE TÉCNICO POLICIAL: "${formData.narrative.userFacts}"]
+El día de hoy ${formData.incident.date.split('-').reverse().join('/')}, siendo las ${formData.incident.time} horas, se atiende requerimiento policivo en ${formData.incident.location}, dónde al llegar al lugar, nos entrevistamos con ${relationWithConnector} en mención, quien nos manifiesta que [AQUÍ DEBES ARGUMENTAR Y EXPANDIR EL SIGUIENTE RELATO USANDO LENGUAJE TÉCNICO POLICIAL: "${formData.narrative.userFacts}"]
 
 *DIAGNÓSTICO MÉDICO:* ${formData.diagnosis.applyMedical ? formData.diagnosis.medicalDiagnosis : "No aplica"}
 
@@ -399,7 +407,7 @@ REGLAS ADICIONALES:
 3. Sé conciso pero profesional.
 4. No agregues introducciones ni conclusiones adicionales fuera de la estructura.
 5. Separa claramente los datos del acudiente/informante de la narrativa de los hechos.
-6. En el relato de los hechos, refiérete al informante como "${formData.informant.relationship} en mención".
+6. En el relato de los hechos, refiérete al informante usando siempre el conector gramatical correspondiente según el género ("${relationWithConnector} en mención").
 7. Si la vulnerabilidad seleccionada es "Ninguno" o no aplica, NO pongas ningún título de vulnerabilidad ni asteriscos debajo de INFORME DE NOVEDAD; pasa de forma directa a los datos de la víctima.`;
 
       let response: Response | null = null;
@@ -731,13 +739,47 @@ REGLAS ADICIONALES:
           </div>
 
           <div className="space-y-4">
-            <Field label="Parentesco o Relación">
+            <Field label="Parentesco o Relación con la víctima">
               <input 
                 type="text" 
-                className="w-full bg-brand-input border-none rounded-lg p-3 text-brand-text outline-none"
+                placeholder="Ej: progenitora, progenitor, abuelo, abuela, tía, tío..."
+                className="w-full bg-brand-input border-none rounded-lg p-3 text-brand-text outline-none focus:ring-1 focus:ring-brand-accent text-sm"
                 value={formData.informant.relationship}
                 onChange={(e) => setFormData({...formData, informant: {...formData.informant, relationship: e.target.value}})}
               />
+              <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                {[
+                  "progenitora",
+                  "progenitor",
+                  "abuela",
+                  "abuelo",
+                  "tía",
+                  "tío",
+                  "hermana",
+                  "hermano",
+                  "madrastra",
+                  "padrastro",
+                  "prima",
+                  "primo",
+                  "acudiente"
+                ].map((rel) => {
+                  const isSelected = formData.informant.relationship.trim().toLowerCase() === rel.toLowerCase();
+                  return (
+                    <button
+                      key={rel}
+                      type="button"
+                      onClick={() => setFormData({...formData, informant: {...formData.informant, relationship: rel}})}
+                      className={`text-xs px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                        isSelected 
+                          ? 'bg-brand-accent text-brand-bg font-bold shadow-sm' 
+                          : 'bg-brand-input/70 hover:bg-brand-input text-brand-text/70 hover:text-brand-text border border-white/5'
+                      }`}
+                    >
+                      {rel}
+                    </button>
+                  );
+                })}
+              </div>
             </Field>
             <Field label="Nombres y Apellidos del Acompañante">
               <input 
@@ -792,7 +834,7 @@ REGLAS ADICIONALES:
               <span className="text-xs font-medium text-brand-text/60 uppercase tracking-wider">Ayuda para la redacción:</span>
             </div>
             <p className="text-sm text-cyan-400 font-mono leading-relaxed">
-              {isDrafting ? "Generando sugerencia..." : aiDraft || "Complete el lugar de los hechos para generar una sugerencia..."}
+              {isDrafting ? "Generando sugerencia..." : aiDraft || "Complete el lugar de los hechos y parentesco para ver la sugerencia..."}
             </p>
           </div>
 
@@ -927,27 +969,75 @@ REGLAS ADICIONALES:
               <select 
                 className="w-full bg-brand-input border-none rounded-lg p-3 text-brand-text outline-none appearance-none cursor-pointer focus:ring-2 focus:ring-brand-accent"
                 value={
-                  CHIEF_NAMES.find(c => c.toLowerCase() === (formData.signature.chiefName || '').toLowerCase()) || CHIEF_NAMES[0]
+                  CHIEF_NAMES.slice(0, -1).some(c => c.toLowerCase() === (formData.signature.chiefName || '').toLowerCase())
+                    ? (CHIEF_NAMES.find(c => c.toLowerCase() === (formData.signature.chiefName || '').toLowerCase()) || CHIEF_NAMES[0])
+                    : "Otro"
                 }
                 onChange={(e) => {
-                  setFormData({
-                    ...formData,
-                    signature: { ...formData.signature, chiefName: e.target.value }
-                  });
+                  const val = e.target.value;
+                  if (val === "Otro") {
+                    setFormData({
+                      ...formData,
+                      signature: { ...formData.signature, chiefName: "" }
+                    });
+                  } else {
+                    setFormData({
+                      ...formData,
+                      signature: { ...formData.signature, chiefName: val }
+                    });
+                  }
                 }}
               >
                 {CHIEF_NAMES.map(name => (
                   <option key={name} value={name}>{name}</option>
                 ))}
               </select>
+              {(!CHIEF_NAMES.slice(0, -1).some(c => c.toLowerCase() === (formData.signature.chiefName || '').toLowerCase())) && (
+                <input 
+                  type="text" 
+                  placeholder="Escriba el nombre y apellidos del jefe..."
+                  className="w-full bg-brand-input border-none rounded-lg p-3 text-brand-text outline-none mt-2 focus:ring-2 focus:ring-brand-accent text-sm"
+                  value={formData.signature.chiefName}
+                  onChange={(e) => setFormData({...formData, signature: {...formData.signature, chiefName: e.target.value}})}
+                />
+              )}
             </Field>
             <Field label="Cargo del Jefe">
-              <input 
-                type="text" 
-                className="w-full bg-brand-input border-none rounded-lg p-3 text-brand-text outline-none"
-                value={formData.signature.chiefRole}
-                onChange={(e) => setFormData({...formData, signature: {...formData.signature, chiefRole: e.target.value}})}
-              />
+              <select 
+                className="w-full bg-brand-input border-none rounded-lg p-3 text-brand-text outline-none appearance-none cursor-pointer focus:ring-2 focus:ring-brand-accent"
+                value={
+                  CHIEF_ROLES.includes(formData.signature.chiefRole) 
+                    ? formData.signature.chiefRole 
+                    : (formData.signature.chiefRole ? "Otro" : CHIEF_ROLES[0])
+                }
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val === "Otro") {
+                    setFormData({
+                      ...formData,
+                      signature: { ...formData.signature, chiefRole: "" }
+                    });
+                  } else {
+                    setFormData({
+                      ...formData,
+                      signature: { ...formData.signature, chiefRole: val }
+                    });
+                  }
+                }}
+              >
+                {CHIEF_ROLES.map(role => (
+                  <option key={role} value={role}>{role}</option>
+                ))}
+              </select>
+              {(!CHIEF_ROLES.slice(0, 2).includes(formData.signature.chiefRole)) && (
+                <input 
+                  type="text" 
+                  placeholder="Escriba el cargo del jefe..."
+                  className="w-full bg-brand-input border-none rounded-lg p-3 text-brand-text outline-none mt-2 focus:ring-2 focus:ring-brand-accent text-sm"
+                  value={formData.signature.chiefRole}
+                  onChange={(e) => setFormData({...formData, signature: {...formData.signature, chiefRole: e.target.value}})}
+                />
+              )}
             </Field>
           </div>
         </Section>
@@ -962,11 +1052,14 @@ REGLAS ADICIONALES:
             className="sm:col-span-2 w-full bg-brand-accent hover:bg-cyan-400 text-brand-bg font-bold py-4 px-4 rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-brand-accent/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
             {isGenerating ? (
-              <div className="w-6 h-6 border-2 border-brand-bg border-t-transparent rounded-full animate-spin" />
+              <>
+                <div className="w-5 h-5 border-2 border-brand-bg border-t-transparent rounded-full animate-spin" />
+                <span>Redactando Informe con IA...</span>
+              </>
             ) : (
               <>
                 <Sparkles className="w-5 h-5" />
-                <span>{isOnline ? "Generar Informe" : "Generar Informe (Sin Internet)"}</span>
+                <span>Generar Informe con IA</span>
               </>
             )}
           </motion.button>
@@ -1008,23 +1101,13 @@ REGLAS ADICIONALES:
             </button>
           </div>
 
-          {/* Offline generation banner with AI upgrade option */}
-          {isOfflineGenerated && finalReport && !isGenerating && (
+          {/* Status banner */}
+          {finalReport && !isGenerating && (
             <div className="mb-4 p-3 rounded-xl bg-cyan-950/40 border border-cyan-500/30 flex flex-wrap items-center justify-between gap-3 text-xs">
               <div className="flex items-center gap-2 text-cyan-300">
-                <Shield className="w-4 h-4 shrink-0 text-cyan-400" />
-                <span>Estructura oficial técnica de la Policía Nacional lista para copiar.</span>
+                <Sparkles className="w-4 h-4 shrink-0 text-cyan-400" />
+                <span>Informe policial <strong>redactado y estructurado con IA</strong> listo para enviar.</span>
               </div>
-              {isOnline && (
-                <button
-                  onClick={handleGenerateReport}
-                  disabled={isGenerating}
-                  className="px-3 py-1.5 rounded-lg bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-bold shrink-0 flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  Pulir con IA
-                </button>
-              )}
             </div>
           )}
 
@@ -1035,7 +1118,7 @@ REGLAS ADICIONALES:
                   <div className="mb-4 p-2.5 rounded-lg bg-cyan-950/80 border border-cyan-500/40 flex items-center justify-between text-xs text-cyan-300 font-sans shadow-inner">
                     <span className="flex items-center gap-2">
                       <Sparkles className="w-4 h-4 animate-spin text-cyan-400 shrink-0" />
-                      Optimizando redacción con IA... (el informe ya está completo y listo para copiar)
+                      Redacción con IA en progreso... (estructurando relato técnico policial)
                     </span>
                   </div>
                 )}
