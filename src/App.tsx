@@ -312,7 +312,7 @@ export default function App() {
       const dateInWords = formatDateInWords(formData.incident.date);
       const relationWithConnector = getRelationshipWithConnector(formData.informant.relationship || 'persona');
       const locationText = formData.incident.location.trim() || '[Lugar de los hechos]';
-      const draft = `El día ${dateInWords || 'de hoy'}, siendo las ${formData.incident.time || '12:00'} horas, se atiende requerimiento policivo en ${locationText}, donde nos entrevistamos con ${relationWithConnector} en mención...`;
+      const draft = `El día ${dateInWords || 'de hoy'}, siendo las ${formData.incident.time || '12:00'} horas, se atiende requerimiento policivo en ${locationText}, donde nos entrevistamos con ${relationWithConnector} en mención, quien nos manifiesta que...`;
       setAiDraft(draft);
     } catch (error) {
       console.error("Error generating draft:", error);
@@ -355,6 +355,9 @@ export default function App() {
       const vulnHeader = isNone ? "" : `\n*${vulnerability.toUpperCase()}*\n`;
       const relationWithConnector = getRelationshipWithConnector(formData.informant.relationship || 'persona');
       const informantRelationTitle = getCleanRelationshipTitle(formData.informant.relationship || 'acudiente');
+      const dateInWords = formatDateInWords(formData.incident.date) || 'de hoy';
+      const locationText = formData.incident.location.trim() || 'el lugar de los hechos';
+      const timeText = formData.incident.time || '12:00';
       
       const victimsList = formData.victim.map((v) => 
         `*VÍCTIMA:* ${v.fullName} (${v.gender}) ${v.docType}: ${v.docNumber}, FN: ${v.birthDate ? v.birthDate.split('-').reverse().join('/') : ''}, ${v.age} años, ${v.nationality}.`
@@ -391,7 +394,7 @@ ${vulnHeader ? `${vulnHeader}\n` : '\n'}${victimsList}${perpetratorInfo}
 
 *${informantRelationTitle}:* ${formData.informant.fullName}, ${formData.informant.docType} ${formData.informant.docNumber}, residente en ${formData.informant.address}, celular: ${formData.informant.phone}.
 
-El día de hoy ${formData.incident.date.split('-').reverse().join('/')}, siendo las ${formData.incident.time} horas, se atiende requerimiento policivo en ${formData.incident.location}, dónde al llegar al lugar, nos entrevistamos con ${relationWithConnector} en mención, quien nos manifiesta que [AQUÍ DEBES ARGUMENTAR Y EXPANDIR EL SIGUIENTE RELATO USANDO LENGUAJE TÉCNICO POLICIAL: "${formData.narrative.userFacts}"]
+El día ${dateInWords}, siendo las ${timeText} horas, se atiende requerimiento policivo en ${locationText}, donde nos entrevistamos con ${relationWithConnector} en mención, quien nos manifiesta que [AQUÍ APLICA LA IA A LO QUE MANIFIESTA LA PERSONA EN LENGUAJE TÉCNICO POLICIAL: "${formData.narrative.userFacts}"]
 
 *DIAGNÓSTICO MÉDICO:* ${formData.diagnosis.applyMedical ? formData.diagnosis.medicalDiagnosis : "No aplica"}
 
@@ -401,14 +404,13 @@ ${formData.signature.chiefRank}
 *${formData.signature.chiefName}*
 ${formData.signature.chiefRole}
 
-REGLAS ADICIONALES:
+REGLAS OBLIGATORIAS:
 1. Saludo inicial obligatorio: "Mi Coronel, ${getGreeting()}" (NUNCA uses "Mi General", SIEMPRE "Mi Coronel").
-2. Usa lenguaje técnico-policial de Colombia.
-3. Sé conciso pero profesional.
-4. No agregues introducciones ni conclusiones adicionales fuera de la estructura.
-5. Separa claramente los datos del acudiente/informante de la narrativa de los hechos.
-6. En el relato de los hechos, refiérete al informante usando siempre el conector gramatical correspondiente según el género ("${relationWithConnector} en mención").
-7. Si la vulnerabilidad seleccionada es "Ninguno" o no aplica, NO pongas ningún título de vulnerabilidad ni asteriscos debajo de INFORME DE NOVEDAD; pasa de forma directa a los datos de la víctima.`;
+2. El relato de los hechos DEBE EMPEZAR EXACTAMENTE CON ESTE ENCABEZADO SIN NINGÚN OTRO PÁRRAFO NI INTRODUCCIÓN PREVIA:
+"El día ${dateInWords}, siendo las ${timeText} horas, se atiende requerimiento policivo en ${locationText}, donde nos entrevistamos con ${relationWithConnector} en mención, quien nos manifiesta que "
+3. La IA debe aplicarse EXCLUSIVAMENTE a argumentar y expandir lo que manifiesta la persona en lenguaje técnico policial colombiano, continuando inmediatamente después de "quien nos manifiesta que ".
+4. NUNCA inventes párrafos adicionales de desplazamiento ni llegada al sitio ni actas de derechos fuera de la estructura. Todo el relato es un texto directo que comienza con el encabezado obligatorio de la regla 2.
+5. Si la vulnerabilidad seleccionada es "Ninguno" o no aplica, NO pongas ningún título de vulnerabilidad ni asteriscos debajo de INFORME DE NOVEDAD; pasa de forma directa a los datos de la víctima.`;
 
       let response: Response | null = null;
       try {

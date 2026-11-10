@@ -215,32 +215,30 @@ Responde únicamente con el esquema JSON.`;
 
 // Engine for technical Colombian police narrative synthesis
 function buildTechnicalPoliceReportFromPrompt(prompt: string): string {
-  const match = prompt.match(/\[AQU[IÍ]\s+DEBES[\s\S]*?:\s*"([\s\S]*?)"\]/i);
+  const match = prompt.match(/\[AQU[IÍ][\s\S]*?:\s*"([\s\S]*?)"\]/i);
   let rawFacts = match ? match[1] : '';
 
   let baseReport = prompt.replace(/^Genera un informe policial formal[\s\S]*?esta estructura y estilo:\s*/i, '');
-  baseReport = baseReport.replace(/\n*REGLAS ADICIONALES:[\s\S]*$/i, '').trim();
+  baseReport = baseReport.replace(/\n*REGLAS (?:ADICIONALES|OBLIGATORIAS):[\s\S]*$/i, '').trim();
 
-  const dateMatch = prompt.match(/El día de hoy (\d{2}\/\d{2}\/\d{4})/i);
-  const dateStr = dateMatch ? dateMatch[1] : new Date().toLocaleDateString('es-CO');
+  const dateMatch = prompt.match(/El día\s+([0-9A-Za-záéíóúñ\s]+?),\s+siendo las/i);
+  const dateStr = dateMatch ? dateMatch[1].trim() : 'de hoy';
 
   const timeMatch = prompt.match(/siendo las (\d{2}:\d{2}) horas/i);
   const timeStr = timeMatch ? timeMatch[1] : '12:00';
 
-  const locMatch = prompt.match(/se atiende requerimiento policivo en (.*?), dónde/i);
+  const locMatch = prompt.match(/se atiende requerimiento policivo en (.*?), donde nos entrevistamos/i)
+    || prompt.match(/se atiende requerimiento policivo en (.*?), dónde/i);
   const locationStr = locMatch ? locMatch[1].trim() : 'el lugar de los hechos';
 
   const relMatch = prompt.match(/nos entrevistamos con (.*?) en mención/i);
   const relationStr = relMatch ? relMatch[1].trim() : 'la persona informante';
 
-  const vulnMatch = baseReport.match(/\*([A-ZÁÉÍÓÚÑ\s\(\)]+)\*\n\*VÍCTIMA:\*/i);
-  const vulnType = vulnMatch ? vulnMatch[1].trim() : '';
-
-  const victimMatch = baseReport.match(/\*VÍCTIMA:\*\s*(.*?)\s*\(/i);
-  const victimName = victimMatch ? victimMatch[1].trim() : 'el menor de edad';
-
   let cleanFacts = (rawFacts || '').trim();
   cleanFacts = cleanFacts.replace(/^(quien\s+nos\s+manifiesta\s+que|nos\s+manifiesta\s+que|manifiesta\s+que|que\s+el|que\s+la)\s*/i, '');
+  if (cleanFacts) {
+    cleanFacts = cleanFacts.charAt(0).toLowerCase() + cleanFacts.slice(1);
+  }
 
   let expanded = cleanFacts;
   const replacements: [RegExp, string][] = [
@@ -265,33 +263,14 @@ function buildTechnicalPoliceReportFromPrompt(prompt: string): string {
     expanded = expanded.replace(pattern, repl);
   }
 
-  let vulnerabilityContext = '';
-  const vulnUpper = vulnType.toUpperCase();
-  if (vulnUpper.includes('EVASIÓN NÚCLEO FAMILIAR')) {
-    vulnerabilityContext = 'Dicha conducta configura una presunta situación de evasión del núcleo familiar, generando zozobra en su entorno protector y exponiendo al menor a factores de riesgo en vía pública sin supervisión parental.';
-  } else if (vulnUpper.includes('VIOLENCIA INTRAFAMILIAR')) {
-    vulnerabilityContext = 'Hechos que se enmarcan en un presunto caso de violencia intrafamiliar y maltrato, generándose vulneración a los derechos fundamentales consagrados en favor de los menores de edad y quebrantando la unidad y armonía del hogar.';
-  } else if (vulnUpper.includes('SITUACIÓN DE CALLE')) {
-    vulnerabilityContext = 'Configurándose una permanencia no autorizada en espacio público con exposición a condiciones de vulnerabilidad, desarraigo y factores generadores de riesgo social.';
-  } else if (vulnUpper.includes('CONSUMO DE SUSTANCIAS')) {
-    vulnerabilityContext = 'Situación que amerita prioritaria canalización y valoración ante las entidades de salud competentes para activar las rutas de deshabituación y acompañamiento psicosocial correspondientes.';
-  } else if (vulnUpper.includes('ACCESO CARNAL') || vulnUpper.includes('ACTO SEXUAL')) {
-    vulnerabilityContext = 'Presuntos hechos de alta gravedad que atentan de manera directa contra la libertad e integridad de la víctima, procediéndose de manera prioritaria a la activación de la ruta integral para la protección de víctimas de violencia sexual.';
-  } else if (vulnUpper.includes('ABANDONO')) {
-    vulnerabilityContext = 'Inobservancia grave a los deberes de custodia, sostenimiento y protección integral que los acudientes deben garantizar conforme a los principios de corresponsabilidad civil y legal.';
-  } else if (vulnUpper.includes('AMENAZA')) {
-    vulnerabilityContext = 'Generándose un riesgo latente para la seguridad del menor, lo cual exige medidas perentorias de protección preventiva y articulación interinstitucional.';
-  } else if (vulnUpper.includes('RIÑA') || vulnUpper.includes('LESIONES')) {
-    vulnerabilityContext = 'Configurándose afectación a la integridad física mediante actos de intolerancia social, requiriéndose la debida atención médica y activación de la ruta legal pertinente.';
+  expanded = expanded.trim();
+  if (!expanded.endsWith('.')) {
+    expanded += '.';
   }
 
-  const technicalNarrative = `El día de hoy ${dateStr}, siendo aproximadamente las ${timeStr} horas, en atención a requerimiento del servicio de policía para la verificación de motivos que comprometen la protección de la infancia y la adolescencia, el personal uniformado de la Policía Nacional se traslada de manera oportuna a las instalaciones de ${locationStr}.
+  const technicalNarrative = `El día ${dateStr}, siendo las ${timeStr} horas, se atiende requerimiento policivo en ${locationStr}, donde nos entrevistamos con ${relationStr} en mención, quien nos manifiesta que ${expanded}`;
 
-Al arribar al lugar de los hechos, se toma contacto formal y nos entrevistamos con ${relationStr} en mención, quien plenamente individualizada y en ejercicio de su deber de cuidado y corresponsabilidad manifiesta de manera libre y espontánea que ${expanded}. ${vulnerabilityContext}
-
-Frente a la situación fáctica evidenciada, el personal policial uniformado procede a brindar el correspondiente acompañamiento preventivo a ${victimName}, garantizando la prevalencia y protección integral de sus derechos fundamentales en estricta observancia del principio del interés superior de los niños, niñas y adolescentes (Ley 1098 de 2006 – Código de la Infancia y la Adolescencia). Asimismo, se imparten pautas de orientación legal y corresponsabilidad familiar a los acudientes, procediendo de forma simultánea a realizar la respectiva articulación institucional para el inicio formal de las actuaciones conducentes al restablecimiento de sus derechos.`;
-
-  return baseReport.replace(/El día de hoy[\s\S]*?\[AQU[IÍ]\s+DEBES[\s\S]*?\]/i, technicalNarrative);
+  return baseReport.replace(/El día[\s\S]*?\[AQU[IÍ][\s\S]*?\]/i, technicalNarrative);
 }
 
 // Endpoint: Generate formal police report with streaming response and multi-model fallback
